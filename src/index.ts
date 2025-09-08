@@ -81,10 +81,13 @@ process.env.ENVIRONMENT_NAME = envConfig.environmentName;
 
 async function main() {
     // Initialize logging
+    const logHost = options.logHost || process.env.LOG_HOST;
     initialiseLogging({
         debug: process.env.NODE_ENV !== 'production',
-        logHost: options.logHost || process.env.LOG_HOST,
+        logHost: logHost,
         logPort: options.logPort || (process.env.LOG_PORT ? Number.parseInt(process.env.LOG_PORT, 10) : undefined),
+        suppressConsoleLog: !!logHost,
+        paperTrailIdentifier: `router.${envConfig.environmentName}`,
     });
 
     logger.info('Starting CE Router Service...');
