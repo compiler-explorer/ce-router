@@ -16,6 +16,7 @@ export interface CompilerExplorerRouterConfig {
 export interface CompilerRequest extends Request {
     params: {
         compilerid: string;
+        env?: string;
     };
 }
 
@@ -92,12 +93,20 @@ export class CompilerExplorerRouter {
         // Health check endpoint
         this.app.get('/healthcheck', (req, res) => this.handleHealthCheck(req, res));
 
-        // Compiler compile endpoint
+        // Environment-prefixed routes (for beta, staging)
+        this.app.post('/:env/api/compiler/:compilerid/compile', (req: CompilerRequest, res: Response) => {
+            this.handleCompilationRequest(req, res, false);
+        });
+
+        this.app.post('/:env/api/compiler/:compilerid/cmake', (req: CompilerRequest, res: Response) => {
+            this.handleCompilationRequest(req, res, true);
+        });
+
+        // Production routes (no environment prefix)
         this.app.post('/api/compiler/:compilerid/compile', (req: CompilerRequest, res: Response) => {
             this.handleCompilationRequest(req, res, false);
         });
 
-        // Compiler cmake endpoint
         this.app.post('/api/compiler/:compilerid/cmake', (req: CompilerRequest, res: Response) => {
             this.handleCompilationRequest(req, res, true);
         });
