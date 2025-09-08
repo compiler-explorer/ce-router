@@ -104,6 +104,7 @@ export class CompilerExplorerRouter {
     }
 
     private handleHealthCheck(_req: Request, res: Response): void {
+        logger.info('Received healthcheck request');
         res.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
