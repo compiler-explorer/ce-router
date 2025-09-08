@@ -114,8 +114,7 @@ function buildQueueUrl(queueName: string, activeColor: string): string {
 }
 
 function getCompilerRoutingTableName(): string {
-    const env = getEnvironmentName();
-    return process.env.COMPILER_ROUTING_TABLE || `CompilerRouting-${env}`;
+    return process.env.COMPILER_ROUTING_TABLE || 'CompilerRouting';
 }
 
 export async function lookupCompilerRouting(compilerId: string): Promise<RoutingInfo> {
