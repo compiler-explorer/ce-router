@@ -53,7 +53,9 @@ export class WebSocketManager extends EventEmitter {
                 } catch (error) {
                     const trimmed = messageString.trim();
                     // Log the full message content for debugging
-                    logger.warn(`WebSocket received non-JSON message: "${messageString}" (length: ${messageString.length})`);
+                    logger.warn(
+                        `WebSocket received non-JSON message: "${messageString}" (length: ${messageString.length})`,
+                    );
                     // Only emit error if it looks like it should be JSON (starts with { or [ or contains JSON-like patterns)
                     if (
                         trimmed.startsWith('{') ||
