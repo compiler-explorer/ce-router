@@ -51,11 +51,17 @@ export class WebSocketManager extends EventEmitter {
                     const message = JSON.parse(messageString);
                     this.emit('message', message);
                 } catch (error) {
+                    const trimmed = messageString.trim();
                     // Log the problematic message for debugging
                     logger.info(`Received non-JSON message: ${messageString.substring(0, 100)}...`);
-                    // Only emit error if it looks like it should be JSON (starts with { or [)
-                    if (messageString.trim().startsWith('{') || messageString.trim().startsWith('[')) {
-                        this.emit('error', new Error(`Failed to parse JSON message: ${error}`));
+                    // Only emit error if it looks like it should be JSON (starts with { or [ or contains JSON-like patterns)
+                    if (
+                        trimmed.startsWith('{') ||
+                        trimmed.startsWith('[') ||
+                        trimmed.includes('{') ||
+                        trimmed.includes('[')
+                    ) {
+                        this.emit('error', new Error(`Failed to parse message: ${error}`));
                     }
                     // Otherwise, ignore non-JSON messages (might be ping/pong, etc.)
                 }
