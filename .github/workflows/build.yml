@@ -3,6 +3,8 @@ name: Build and Lint
 on:
   push:
   pull_request:
+  release:
+    types: [published]
 
 jobs:
   build:
@@ -27,6 +29,9 @@ jobs:
     - name: Run type check
       run: npm run typecheck
       
+    - name: Run tests
+      run: npm run test
+      
     - name: Build project
       run: npm run build
       
@@ -36,3 +41,31 @@ jobs:
         name: dist-${{ github.sha }}
         path: dist/
         retention-days: 30
+    
+    - name: Install production dependencies
+      if: github.event_name == 'release'
+      run: |
+        rm -Rf node_modules
+        npm install --no-audit --ignore-scripts --production
+        npm install --no-audit --ignore-scripts --production --cpu arm64
+      
+    - name: Create release archive
+      if: github.event_name == 'release'
+      run: |
+        mkdir -p release-temp
+        cp -r dist/* release-temp/
+        cp -r node_modules release-temp/
+        cp package.json package-lock.json release-temp/
+        cd release-temp
+        zip -r ../ce-router-${{ github.event.release.tag_name }}.zip .
+        
+    - name: Upload release asset
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./ce-router-${{ github.event.release.tag_name }}.zip
+        asset_name: ce-router-${{ github.event.release.tag_name }}.zip
+        asset_content_type: application/zip

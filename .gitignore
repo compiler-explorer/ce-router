@@ -39,3 +39,6 @@ pids
 *.pid
 *.seed
 *.pid.lock
+
+# Archives
+*.zip
