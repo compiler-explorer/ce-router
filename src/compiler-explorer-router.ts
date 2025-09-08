@@ -1,5 +1,6 @@
 import express from 'express';
 import type {Application, Request, Response} from 'express';
+import {logger} from './lib/logger.js';
 import {forwardToEnvironmentUrl} from './services/http-forwarder.js';
 import {ResultWaiter} from './services/result-waiter.js';
 import {RoutingInfo, lookupCompilerRouting, sendToSqs} from './services/routing.js';
@@ -71,19 +72,19 @@ export class CompilerExplorerRouter {
 
     private setupWebSocketHandlers(): void {
         this.wsManager.on('connected', () => {
-            console.log('Connected to WebSocket server');
+            logger.info('Connected to WebSocket server');
         });
 
         this.wsManager.on('disconnected', ({code, reason}) => {
-            console.log(`Disconnected from WebSocket server: ${code} - ${reason}`);
+            logger.info(`Disconnected from WebSocket server: ${code} - ${reason}`);
         });
 
         this.wsManager.on('error', error => {
-            console.error('WebSocket error:', error);
+            logger.error('WebSocket error:', error);
         });
 
         this.wsManager.on('message', message => {
-            console.log('Received message:', message);
+            logger.debug('Received message:', message);
         });
     }
 
@@ -120,9 +121,9 @@ export class CompilerExplorerRouter {
             const queryStringParameters = req.query as Record<string, string>;
 
             const endpoint = isCmake ? 'cmake' : 'compile';
-            console.log(`Received ${endpoint} request for compiler: ${compilerid}`);
-            console.log('Content-Type:', headers['content-type']);
-            console.log(`Request GUID: ${guid}`);
+            logger.info(`Received ${endpoint} request for compiler: ${compilerid}`);
+            logger.debug('Content-Type:', headers['content-type']);
+            logger.info(`Request GUID: ${guid}`);
 
             // Start WebSocket subscription as early as possible
             try {
@@ -130,7 +131,7 @@ export class CompilerExplorerRouter {
                 // Add small delay to ensure subscription is processed
                 await new Promise(resolve => setTimeout(resolve, 50));
             } catch (error) {
-                console.error('Failed to subscribe to WebSocket:', error);
+                logger.error('Failed to subscribe to WebSocket:', error);
                 const errorResponse = createErrorResponse(
                     500,
                     `Failed to setup result subscription: ${(error as Error).message}`,
@@ -157,7 +158,7 @@ export class CompilerExplorerRouter {
                 );
             }
         } catch (error) {
-            console.error('Unexpected error in compilation handler:', error);
+            logger.error('Unexpected error in compilation handler:', error);
             const errorResponse = createErrorResponse(500, `Internal server error: ${(error as Error).message}`);
             res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
         }
@@ -210,7 +211,7 @@ export class CompilerExplorerRouter {
 
             res.status(response.statusCode).set(responseHeaders).send(response.body);
         } catch (error) {
-            console.error('URL forwarding error:', error);
+            logger.error('URL forwarding error:', error);
             const errorResponse = createErrorResponse(500, `Failed to forward request: ${(error as Error).message}`);
             res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
         }
@@ -256,18 +257,18 @@ export class CompilerExplorerRouter {
         } catch (error) {
             // Handle both SQS errors and compilation result errors
             if (!resultPromise) {
-                console.error('SQS error:', error);
+                logger.error('SQS error:', error);
                 const errorResponse = createErrorResponse(
                     500,
                     `Failed to queue compilation request: ${(error as Error).message}`,
                 );
                 res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
             } else if ((error as Error).message.includes('No response received')) {
-                console.error('Timeout waiting for compilation result:', error);
+                logger.error('Timeout waiting for compilation result:', error);
                 const errorResponse = createErrorResponse(408, `Compilation timeout: ${(error as Error).message}`);
                 res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
             } else {
-                console.error('Unexpected error during compilation:', error);
+                logger.error('Unexpected error during compilation:', error);
                 const errorResponse = createErrorResponse(
                     500,
                     `Failed to complete compilation: ${(error as Error).message}`,
@@ -279,7 +280,7 @@ export class CompilerExplorerRouter {
 
     public async start(): Promise<WebSocketManager> {
         await this.wsManager.connect();
-        console.log('WebSocket connection established');
+        logger.info('WebSocket connection established');
         return this.wsManager;
     }
 

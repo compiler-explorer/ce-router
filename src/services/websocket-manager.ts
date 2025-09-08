@@ -1,5 +1,6 @@
 import {EventEmitter} from 'node:events';
 import WebSocket from 'ws';
+import {logger} from '../lib/logger.js';
 
 export interface WebSocketManagerOptions {
     url: string;
@@ -66,7 +67,7 @@ export class WebSocketManager extends EventEmitter {
                     this.reconnectAttempts++;
                     setTimeout(() => {
                         this.connect().catch(error => {
-                            console.error('Reconnection failed:', error);
+                            logger.error('Reconnection failed:', error);
                         });
                     }, this.reconnectInterval);
                 }

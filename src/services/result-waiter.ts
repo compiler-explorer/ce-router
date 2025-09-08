@@ -1,3 +1,4 @@
+import {logger} from '../lib/logger.js';
 import {CompilationResult} from '../utils/index.js';
 import {WebSocketManager} from './websocket-manager.js';
 
@@ -26,23 +27,23 @@ export class ResultWaiter {
                 const subscription = this.subscriptions.get(guid);
 
                 if (subscription) {
-                    console.info(`Received compilation result for GUID: ${guid}`);
+                    logger.info(`Received compilation result for GUID: ${guid}`);
                     clearTimeout(subscription.timeout);
                     this.subscriptions.delete(guid);
                     subscription.resolve(message as CompilationResult);
                 }
             }
         } catch (error) {
-            console.error('Error handling WebSocket message:', error);
+            logger.error('Error handling WebSocket message:', error);
         }
     }
 
     async subscribe(guid: string): Promise<void> {
         try {
             await this.wsManager.subscribe(`guid:${guid}`);
-            console.info(`Subscribed to WebSocket for GUID: ${guid}`);
+            logger.debug(`Subscribed to WebSocket for GUID: ${guid}`);
         } catch (error) {
-            console.error(`Failed to subscribe to WebSocket for GUID ${guid}:`, error);
+            logger.error(`Failed to subscribe to WebSocket for GUID ${guid}:`, error);
             throw error;
         }
     }
@@ -62,16 +63,16 @@ export class ResultWaiter {
                 timeout,
             });
 
-            console.info(`Waiting for compilation result for GUID: ${guid}`);
+            logger.debug(`Waiting for compilation result for GUID: ${guid}`);
         });
     }
 
     async unsubscribe(guid: string): Promise<void> {
         try {
             await this.wsManager.unsubscribe(`guid:${guid}`);
-            console.info(`Unsubscribed from WebSocket for GUID: ${guid}`);
+            logger.debug(`Unsubscribed from WebSocket for GUID: ${guid}`);
         } catch (error) {
-            console.error(`Failed to unsubscribe from WebSocket for GUID ${guid}:`, error);
+            logger.error(`Failed to unsubscribe from WebSocket for GUID ${guid}:`, error);
         }
     }
 }

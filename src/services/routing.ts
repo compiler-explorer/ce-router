@@ -1,6 +1,7 @@
 import {GetItemCommand} from '@aws-sdk/client-dynamodb';
 import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {GetParameterCommand} from '@aws-sdk/client-ssm';
+import {logger} from '../lib/logger.js';
 import {parseRequestBody} from '../utils/index.js';
 import {dynamoDBClient, sqsClient, ssmClient} from './aws-clients.js';
 
@@ -37,7 +38,7 @@ async function getActiveColor(): Promise<string> {
 
     // Check cache
     if (activeColorCache.color && now - activeColorCache.timestamp < activeColorCache.TTL) {
-        console.info(`Active color cache hit: ${activeColorCache.color}`);
+        logger.debug(`Active color cache hit: ${activeColorCache.color}`);
         return activeColorCache.color;
     }
 
@@ -45,7 +46,7 @@ async function getActiveColor(): Promise<string> {
     const paramName = `/compiler-explorer/${environmentName}/active-color`;
 
     try {
-        console.info(`Fetching active color from SSM: ${paramName}`);
+        logger.info(`Fetching active color from SSM: ${paramName}`);
         const response = await ssmClient.send(
             new GetParameterCommand({
                 Name: paramName,
@@ -61,10 +62,10 @@ async function getActiveColor(): Promise<string> {
             TTL: activeColorCache.TTL,
         };
 
-        console.info(`Active color from SSM: ${color}`);
+        logger.info(`Active color from SSM: ${color}`);
         return color;
     } catch (error) {
-        console.warn('Failed to get active color from SSM, defaulting to blue:', error);
+        logger.warn('Failed to get active color from SSM, defaulting to blue:', error);
         return 'blue';
     }
 }
@@ -77,7 +78,7 @@ async function getColoredQueueUrl(): Promise<string> {
         throw new Error(`Queue URL for active color '${activeColor}' not configured in environment variables`);
     }
 
-    console.info(`Using ${activeColor} queue: ${queueUrl}`);
+    logger.info(`Using ${activeColor} queue: ${queueUrl}`);
     return queueUrl;
 }
 
@@ -120,12 +121,12 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
         const cacheKey = compositeKey;
         const cachedEntry = routingCache.get(cacheKey);
         if (cachedEntry) {
-            console.info(`Routing cache hit for compiler: ${compilerId}`);
+            logger.debug(`Routing cache hit for compiler: ${compilerId}`);
             return cachedEntry;
         }
 
         // Look up compiler in DynamoDB routing table using composite key
-        console.info(`DynamoDB routing lookup start for compiler: ${compilerId}`);
+        logger.debug(`DynamoDB routing lookup start for compiler: ${compilerId}`);
         const response = await dynamoDBClient.send(
             new GetItemCommand({
                 TableName: COMPILER_ROUTING_TABLE,
@@ -138,10 +139,10 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
         let item = response.Item;
 
         if (item) {
-            console.info(`DynamoDB routing lookup end for compiler: ${compilerId}, using composite key`);
+            logger.debug(`DynamoDB routing lookup end for compiler: ${compilerId}, using composite key`);
         } else {
             // Fallback: try old format (without environment prefix) for backward compatibility
-            console.info(`Composite key not found for ${compositeKey}, trying legacy format`);
+            logger.debug(`Composite key not found for ${compositeKey}, trying legacy format`);
             const fallbackResponse = await dynamoDBClient.send(
                 new GetItemCommand({
                     TableName: COMPILER_ROUTING_TABLE,
@@ -153,10 +154,10 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
 
             item = fallbackResponse.Item;
             if (item) {
-                console.warn(`Using legacy routing entry for ${compilerId} - consider migration`);
-                console.info(`DynamoDB routing lookup end for compiler: ${compilerId}, using fallback: found`);
+                logger.warn(`Using legacy routing entry for ${compilerId} - consider migration`);
+                logger.debug(`DynamoDB routing lookup end for compiler: ${compilerId}, using fallback: found`);
             } else {
-                console.info(`DynamoDB routing lookup end for compiler: ${compilerId}, using fallback: not found`);
+                logger.debug(`DynamoDB routing lookup end for compiler: ${compilerId}, using fallback: not found`);
             }
         }
 
@@ -173,8 +174,8 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
                     };
                     // Cache the result
                     routingCache.set(cacheKey, result);
-                    console.info(`Compiler ${compilerId} routed to URL: ${targetUrl}`);
-                    console.info(`Routing lookup complete for compiler: ${compilerId}`);
+                    logger.info(`Compiler ${compilerId} routed to URL: ${targetUrl}`);
+                    logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
                     return result;
                 }
             } else {
@@ -190,8 +191,8 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
                     };
                     // Cache the result
                     routingCache.set(cacheKey, result);
-                    console.info(`Compiler ${compilerId} routed to queue: ${queueName} (${queueUrl})`);
-                    console.info(`Routing lookup complete for compiler: ${compilerId}`);
+                    logger.info(`Compiler ${compilerId} routed to queue: ${queueName} (${queueUrl})`);
+                    logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
                     return result;
                 }
                 // Fallback to colored queue if no queueName specified
@@ -203,14 +204,14 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
                 };
                 // Cache the result
                 routingCache.set(cacheKey, result);
-                console.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
-                console.info(`Routing lookup complete for compiler: ${compilerId}`);
+                logger.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
+                logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
                 return result;
             }
         }
 
         // No routing found, use colored queue
-        console.info(`No routing found for compiler ${compilerId}, using colored queue`);
+        logger.info(`No routing found for compiler ${compilerId}, using colored queue`);
         const queueUrl = await getColoredQueueUrl();
         const result: RoutingInfo = {
             type: 'queue',
@@ -219,11 +220,11 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
         };
         // Cache the result
         routingCache.set(cacheKey, result);
-        console.info(`Routing lookup complete for compiler: ${compilerId}, using colored queue`);
+        logger.debug(`Routing lookup complete for compiler: ${compilerId}, using colored queue`);
         return result;
     } catch (error) {
         // On any error, fall back to colored queue
-        console.warn(`Failed to lookup routing for compiler ${compilerId}:`, error);
+        logger.warn(`Failed to lookup routing for compiler ${compilerId}:`, error);
         const queueUrl = await getColoredQueueUrl();
         return {
             type: 'queue',
@@ -251,7 +252,7 @@ export async function sendToSqs(
     const requestData = parseRequestBody(body, contentType);
 
     if (typeof requestData !== 'object') {
-        console.warn(`Request data is not an object: ${JSON.stringify(requestData).substring(0, 100)}...`);
+        logger.warn(`Request data is not an object: ${JSON.stringify(requestData).substring(0, 100)}...`);
     }
 
     // Start with Lambda-specific fields and merge with request data
@@ -277,7 +278,7 @@ export async function sendToSqs(
     try {
         const messageJson = JSON.stringify(messageBody);
 
-        console.info(`SQS send start for GUID: ${guid} to queue`);
+        logger.debug(`SQS send start for GUID: ${guid} to queue`);
         await sqsClient.send(
             new SendMessageCommand({
                 QueueUrl: queueUrl,
@@ -286,9 +287,9 @@ export async function sendToSqs(
                 MessageDeduplicationId: guid,
             }),
         );
-        console.info(`SQS send end for GUID: ${guid}`);
+        logger.debug(`SQS send end for GUID: ${guid}`);
     } catch (error) {
-        console.error(`Failed to send message to SQS (${queueUrl}):`, error);
+        logger.error(`Failed to send message to SQS (${queueUrl}):`, error);
         throw new Error(`Failed to send message to SQS (${queueUrl}): ${(error as Error).message}`);
     }
 }

@@ -1,4 +1,5 @@
 import {v4 as uuidv4} from 'uuid';
+import {logger} from '../lib/logger.js';
 
 const TRIM_SLASHES_REGEX = /^\/+|\/+$/g;
 const TEXT_BANNER = 'Compilation provided by Compiler Explorer at https://godbolt.org/';
@@ -38,7 +39,7 @@ export function parseRequestBody(body: string, contentType?: string): Record<str
         try {
             return JSON.parse(body);
         } catch (error) {
-            console.warn('Failed to parse JSON body, treating as plain text');
+            logger.warn('Failed to parse JSON body, treating as plain text');
             return {source: body};
         }
     } else {

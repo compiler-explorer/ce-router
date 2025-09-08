@@ -1,4 +1,5 @@
 import axios from 'axios';
+import {logger} from '../lib/logger.js';
 
 export interface ForwardResponse {
     statusCode: number;
@@ -18,7 +19,7 @@ export async function forwardToEnvironmentUrl(
         const endpoint = isCmake ? 'cmake' : 'compile';
         const fullUrl = `${targetUrl.replace(/\/$/, '')}/api/compiler/${compilerId}/${endpoint}`;
 
-        console.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
+        logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
 
         // Prepare headers, converting string arrays to strings
         const forwardHeaders: Record<string, string> = {};
@@ -49,7 +50,7 @@ export async function forwardToEnvironmentUrl(
             validateStatus: () => true, // Don't throw on any status code
         });
 
-        console.info(`Forwarding response status: ${response.status}`);
+        logger.debug(`Forwarding response status: ${response.status}`);
 
         return {
             statusCode: response.status,
@@ -57,7 +58,7 @@ export async function forwardToEnvironmentUrl(
             body: typeof response.data === 'string' ? response.data : JSON.stringify(response.data),
         };
     } catch (error) {
-        console.error('HTTP forwarding error:', error);
+        logger.error('HTTP forwarding error:', error);
 
         if (axios.isAxiosError(error)) {
             if (error.code === 'ECONNABORTED') {
