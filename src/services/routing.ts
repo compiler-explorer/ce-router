@@ -27,12 +27,14 @@ function getEnvironmentName(): string {
 
 function getBlueQueueUrl(): string {
     const env = getEnvironmentName();
-    return process.env[`SQS_QUEUE_URL_BLUE_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_BLUE || '';
+    const defaultUrl = `https://sqs.us-east-1.amazonaws.com/052730242331/${env}-compilation-queue-blue.fifo`;
+    return process.env[`SQS_QUEUE_URL_BLUE_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_BLUE || defaultUrl;
 }
 
 function getGreenQueueUrl(): string {
     const env = getEnvironmentName();
-    return process.env[`SQS_QUEUE_URL_GREEN_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_GREEN || '';
+    const defaultUrl = `https://sqs.us-east-1.amazonaws.com/052730242331/${env}-compilation-queue-green.fifo`;
+    return process.env[`SQS_QUEUE_URL_GREEN_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_GREEN || defaultUrl;
 }
 
 async function getActiveColor(): Promise<string> {
