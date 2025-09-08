@@ -34,14 +34,7 @@ jobs:
       
     - name: Build project
       run: npm run build
-      
-    - name: Create build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist-${{ github.sha }}
-        path: dist/
-        retention-days: 30
-    
+
     - name: Install production dependencies
       if: github.event_name == 'release'
       run: |
