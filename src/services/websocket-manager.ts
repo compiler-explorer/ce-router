@@ -64,7 +64,11 @@ export class WebSocketManager extends EventEmitter {
 
                 if (!this.isClosing && this.reconnectAttempts < this.maxReconnectAttempts) {
                     this.reconnectAttempts++;
-                    setTimeout(() => this.connect(), this.reconnectInterval);
+                    setTimeout(() => {
+                        this.connect().catch(error => {
+                            console.error('Reconnection failed:', error);
+                        });
+                    }, this.reconnectInterval);
                 }
             });
 
