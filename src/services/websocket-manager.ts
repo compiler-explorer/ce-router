@@ -52,8 +52,8 @@ export class WebSocketManager extends EventEmitter {
                     this.emit('message', message);
                 } catch (error) {
                     const trimmed = messageString.trim();
-                    // Log the problematic message for debugging
-                    logger.info(`Received non-JSON message: ${messageString.substring(0, 100)}...`);
+                    // Log the full message content for debugging
+                    logger.warn(`WebSocket received non-JSON message: "${messageString}" (length: ${messageString.length})`);
                     // Only emit error if it looks like it should be JSON (starts with { or [ or contains JSON-like patterns)
                     if (
                         trimmed.startsWith('{') ||
@@ -63,7 +63,7 @@ export class WebSocketManager extends EventEmitter {
                     ) {
                         this.emit('error', new Error(`Failed to parse message: ${error}`));
                     }
-                    // Otherwise, ignore non-JSON messages (might be ping/pong, etc.)
+                    // Otherwise, silently ignore non-JSON messages (might be ping/pong, control frames, etc.)
                 }
             });
 
@@ -113,12 +113,12 @@ export class WebSocketManager extends EventEmitter {
 
     subscribe(topic: string): Promise<void> {
         this.subscriptions.add(topic);
-        return this.send({type: 'subscribe', topic});
+        return this.send(`subscribe: ${topic}`);
     }
 
     unsubscribe(topic: string): Promise<void> {
         this.subscriptions.delete(topic);
-        return this.send({type: 'unsubscribe', topic});
+        return this.send(`unsubscribe: ${topic}`);
     }
 
     close(): void {

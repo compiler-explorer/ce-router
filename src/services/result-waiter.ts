@@ -40,7 +40,7 @@ export class ResultWaiter {
 
     async subscribe(guid: string): Promise<void> {
         try {
-            await this.wsManager.subscribe(`guid:${guid}`);
+            await this.wsManager.subscribe(guid);
             logger.debug(`Subscribed to WebSocket for GUID: ${guid}`);
         } catch (error) {
             logger.error(`Failed to subscribe to WebSocket for GUID ${guid}:`, error);
