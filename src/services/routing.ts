@@ -26,11 +26,13 @@ function getEnvironmentName(): string {
 }
 
 function getBlueQueueUrl(): string {
-    return process.env.SQS_QUEUE_URL_BLUE || '';
+    const env = getEnvironmentName();
+    return process.env[`SQS_QUEUE_URL_BLUE_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_BLUE || '';
 }
 
 function getGreenQueueUrl(): string {
-    return process.env.SQS_QUEUE_URL_GREEN || '';
+    const env = getEnvironmentName();
+    return process.env[`SQS_QUEUE_URL_GREEN_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_GREEN || '';
 }
 
 async function getActiveColor(): Promise<string> {
@@ -109,7 +111,10 @@ function buildQueueUrl(queueName: string, activeColor: string): string {
     return baseUrl + fifoQueueName;
 }
 
-const COMPILER_ROUTING_TABLE = 'CompilerRouting';
+function getCompilerRoutingTableName(): string {
+    const env = getEnvironmentName();
+    return process.env.COMPILER_ROUTING_TABLE || `CompilerRouting-${env}`;
+}
 
 export async function lookupCompilerRouting(compilerId: string): Promise<RoutingInfo> {
     try {
@@ -129,7 +134,7 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
         logger.debug(`DynamoDB routing lookup start for compiler: ${compilerId}`);
         const response = await dynamoDBClient.send(
             new GetItemCommand({
-                TableName: COMPILER_ROUTING_TABLE,
+                TableName: getCompilerRoutingTableName(),
                 Key: {
                     compilerId: {S: compositeKey},
                 },
@@ -145,7 +150,7 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
             logger.debug(`Composite key not found for ${compositeKey}, trying legacy format`);
             const fallbackResponse = await dynamoDBClient.send(
                 new GetItemCommand({
-                    TableName: COMPILER_ROUTING_TABLE,
+                    TableName: getCompilerRoutingTableName(),
                     Key: {
                         compilerId: {S: compilerId},
                     },

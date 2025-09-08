@@ -21,21 +21,63 @@ function parsePortNumberForOptions(value: string): number {
     return parsedValue;
 }
 
+/**
+ * Validates environment parameter.
+ */
+function validateEnvironment(value: string): string {
+    const validEnvironments = ['prod', 'beta', 'staging'];
+    if (!validEnvironments.includes(value)) {
+        throw new Error(`Invalid environment: "${value}". Must be one of: ${validEnvironments.join(', ')}`);
+    }
+    return value;
+}
+
 // Parse command line arguments
 const program = new Command();
 program
     .name('ce-router')
     .description('Compiler Explorer Router Service')
     .version('1.0.0')
-    .option('-p, --port <port>', 'port to run the server on', '3000')
-    .option('-w, --websocket <url>', 'WebSocket server URL', 'wss://events.compiler-explorer.com/beta')
+    .option('-p, --port <port>', 'port to run the server on', '10240')
+    .option('-w, --websocket <url>', 'WebSocket server URL')
     .option('--logHost, --log-host <hostname>', 'Hostname for remote logging')
     .option('--logPort, --log-port <port>', 'Port for remote logging', parsePortNumberForOptions)
+    .option('--env <environment>', 'Environment (prod, beta, staging) [required]', validateEnvironment)
     .parse();
 
 const options = program.opts();
 const PORT = process.env.PORT || options.port;
-const WEBSOCKET_URL = process.env.WEBSOCKET_URL || options.websocket;
+
+// Environment-based configuration
+function getEnvironmentConfig(env: string) {
+    const configs = {
+        prod: {
+            websocketUrl: 'wss://events.compiler-explorer.com/prod',
+            environmentName: 'prod',
+        },
+        beta: {
+            websocketUrl: 'wss://events.compiler-explorer.com/beta',
+            environmentName: 'beta',
+        },
+        staging: {
+            websocketUrl: 'wss://events.compiler-explorer.com/staging',
+            environmentName: 'staging',
+        },
+    };
+    return configs[env as keyof typeof configs];
+}
+
+const ENV = options.env || process.env.ENVIRONMENT;
+if (!ENV) {
+    console.error('Error: Environment must be specified via --env option or ENVIRONMENT environment variable');
+    console.error('Valid environments: prod, beta, staging');
+    process.exit(1);
+}
+const envConfig = getEnvironmentConfig(ENV);
+const WEBSOCKET_URL = process.env.WEBSOCKET_URL || options.websocket || envConfig.websocketUrl;
+
+// Set environment name for other services to use
+process.env.ENVIRONMENT_NAME = envConfig.environmentName;
 
 async function main() {
     // Initialize logging
