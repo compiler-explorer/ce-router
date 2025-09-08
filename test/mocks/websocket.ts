@@ -15,7 +15,7 @@ export class MockWebSocket extends EventEmitter {
     readyState: number = this.CONNECTING;
     url: string;
 
-    send = vi.fn((data: string | Buffer, callback?: (error?: Error) => void) => {
+    send = vi.fn((_data: string | Buffer, callback?: (error?: Error) => void) => {
         if (this.readyState !== this.OPEN) {
             const error = new Error('WebSocket is not open');
             if (callback) {
@@ -42,7 +42,7 @@ export class MockWebSocket extends EventEmitter {
     pong = vi.fn();
     terminate = vi.fn();
 
-    constructor(url: string, options?: any) {
+    constructor(url: string, _options?: any) {
         super();
         this.url = url;
 

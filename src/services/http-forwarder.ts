@@ -57,7 +57,7 @@ export async function forwardToEnvironmentUrl(
             body: typeof response.data === 'string' ? response.data : JSON.stringify(response.data),
         };
     } catch (error) {
-        console.error(`HTTP forwarding error:`, error);
+        console.error('HTTP forwarding error:', error);
 
         if (axios.isAxiosError(error)) {
             if (error.code === 'ECONNABORTED') {

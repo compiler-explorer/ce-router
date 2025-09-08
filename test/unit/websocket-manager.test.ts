@@ -1,15 +1,15 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {MockWebSocket} from '../../__mocks__/websocket';
+import {MockWebSocket} from '../mocks/websocket.js';
 
 vi.mock('ws', () => ({
     default: MockWebSocket,
     WebSocket: MockWebSocket,
 }));
 
-const {WebSocketManager} = await import('../websocket-manager');
+const {WebSocketManager} = await import('../../src/services/websocket-manager.js');
 
 describe('WebSocketManager', () => {
-    let manager: WebSocketManager;
+    let manager: InstanceType<typeof WebSocketManager>;
     const testUrl = 'ws://localhost:8080';
 
     beforeEach(() => {

@@ -1,4 +1,4 @@
-import type {AxiosRequestConfig, AxiosResponse} from 'axios';
+import type {AxiosResponse} from 'axios';
 import {vi} from 'vitest';
 
 export const mockAxios = {
@@ -26,7 +26,7 @@ export const createMockResponse = <T = any>(data: T, status = 200): AxiosRespons
     status,
     statusText: 'OK',
     headers: {},
-    config: {} as AxiosRequestConfig,
+    config: {} as any,
 });
 
 export const createMockError = (message: string, code?: string, status?: number) => {

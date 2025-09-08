@@ -64,7 +64,7 @@ async function getActiveColor(): Promise<string> {
         console.info(`Active color from SSM: ${color}`);
         return color;
     } catch (error) {
-        console.warn(`Failed to get active color from SSM, defaulting to blue:`, error);
+        console.warn('Failed to get active color from SSM, defaulting to blue:', error);
         return 'blue';
     }
 }
@@ -193,20 +193,19 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
                     console.info(`Compiler ${compilerId} routed to queue: ${queueName} (${queueUrl})`);
                     console.info(`Routing lookup complete for compiler: ${compilerId}`);
                     return result;
-                } else {
-                    // Fallback to colored queue if no queueName specified
-                    const queueUrl = await getColoredQueueUrl();
-                    const result: RoutingInfo = {
-                        type: 'queue',
-                        target: queueUrl,
-                        environment: item.environment?.S || '',
-                    };
-                    // Cache the result
-                    routingCache.set(cacheKey, result);
-                    console.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
-                    console.info(`Routing lookup complete for compiler: ${compilerId}`);
-                    return result;
                 }
+                // Fallback to colored queue if no queueName specified
+                const queueUrl = await getColoredQueueUrl();
+                const result: RoutingInfo = {
+                    type: 'queue',
+                    target: queueUrl,
+                    environment: item.environment?.S || '',
+                };
+                // Cache the result
+                routingCache.set(cacheKey, result);
+                console.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
+                console.info(`Routing lookup complete for compiler: ${compilerId}`);
+                return result;
             }
         }
 

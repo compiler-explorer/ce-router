@@ -34,7 +34,7 @@ export function parseRequestBody(body: string, contentType?: string): Record<str
     if (!body) return {};
 
     // Check if content type indicates JSON
-    if (contentType && contentType.toLowerCase().includes('application/json')) {
+    if (contentType?.toLowerCase().includes('application/json')) {
         try {
             return JSON.parse(body);
         } catch (error) {
@@ -110,7 +110,7 @@ export function createSuccessResponse(
     delete result.s3Key;
 
     // Determine response format based on Accept header
-    if (acceptHeader && acceptHeader.toLowerCase().includes('text/plain')) {
+    if (acceptHeader?.toLowerCase().includes('text/plain')) {
         // Plain text response
         let body = '';
 
@@ -145,17 +145,16 @@ export function createSuccessResponse(
             },
             body,
         };
-    } else {
-        // Default to JSON response
-        return {
-            statusCode: 200,
-            headers: {
-                'Content-Type': 'application/json; charset=utf-8',
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
-            },
-            body: JSON.stringify(result),
-        };
     }
+    // Default to JSON response
+    return {
+        statusCode: 200,
+        headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
+        },
+        body: JSON.stringify(result),
+    };
 }

@@ -4,8 +4,8 @@ import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {GetParameterCommand} from '@aws-sdk/client-ssm';
 import {GetCallerIdentityCommand} from '@aws-sdk/client-sts';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {mockDynamoDB, mockS3, mockSQS, mockSSM, mockSTS, resetAllMocks} from '../../__mocks__/aws';
-import {dynamoDBClient, s3Client, sqsClient, ssmClient, stsClient} from '../aws-clients';
+import {dynamoDBClient, s3Client, sqsClient, ssmClient, stsClient} from '../../src/services/aws-clients.js';
+import {mockDynamoDB, mockS3, mockSQS, mockSSM, mockSTS, resetAllMocks} from '../mocks/aws.js';
 
 describe('AWS Clients', () => {
     beforeEach(() => {
@@ -58,7 +58,7 @@ describe('AWS Clients', () => {
                 ContentType: 'text/plain',
             };
 
-            mockS3.on(GetObjectCommand).resolves(mockObject);
+            mockS3.on(GetObjectCommand).resolves(mockObject as any);
 
             const command = new GetObjectCommand({
                 Bucket: 'test-bucket',
@@ -114,7 +114,7 @@ describe('AWS Clients', () => {
                 },
             };
 
-            mockSSM.on(GetParameterCommand).resolves(mockParameter);
+            mockSSM.on(GetParameterCommand).resolves(mockParameter as any);
 
             const command = new GetParameterCommand({
                 Name: '/test/parameter',
