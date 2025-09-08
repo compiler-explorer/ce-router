@@ -117,6 +117,51 @@ describe('WebSocketManager', () => {
         });
     });
 
+    describe('subscription message format', () => {
+        it('should send subscribe messages in correct string format', async () => {
+            await manager.connect();
+
+            const ws = (manager as any).ws as MockWebSocket;
+            const sendSpy = vi.spyOn(ws, 'send');
+
+            const testGuid = 'abc123-def456-ghi789';
+            await manager.subscribe(testGuid);
+
+            // Ensure the message is sent as a string in the format: "subscribe: GUID"
+            expect(sendSpy).toHaveBeenCalledWith(`subscribe: ${testGuid}`, expect.any(Function));
+        });
+
+        it('should send unsubscribe messages in correct string format', async () => {
+            await manager.connect();
+
+            const ws = (manager as any).ws as MockWebSocket;
+            const sendSpy = vi.spyOn(ws, 'send');
+
+            const testGuid = 'xyz789-uvw456-rst123';
+            await manager.unsubscribe(testGuid);
+
+            // Ensure the message is sent as a string in the format: "unsubscribe: GUID"
+            expect(sendSpy).toHaveBeenCalledWith(`unsubscribe: ${testGuid}`, expect.any(Function));
+        });
+
+        it('should never send subscription messages as JSON objects', async () => {
+            await manager.connect();
+
+            const ws = (manager as any).ws as MockWebSocket;
+            const sendSpy = vi.spyOn(ws, 'send');
+
+            const testGuid = 'json-test-guid-123';
+            await manager.subscribe(testGuid);
+
+            // Ensure the message is NOT sent as JSON
+            const sentMessage = sendSpy.mock.calls[0][0];
+            expect(sentMessage).toBeTypeOf('string');
+            expect(sentMessage).not.toMatch(/^\{.*\}$/); // Not JSON object format
+            expect(sentMessage).not.toMatch(/^".*"$/); // Not JSON string format
+            expect(sentMessage).toBe(`subscribe: ${testGuid}`);
+        });
+    });
+
     describe('reconnection', () => {
         it('should attempt to reconnect on disconnect', async () => {
             const disconnectedSpy = vi.fn();
