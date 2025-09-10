@@ -32,6 +32,19 @@ export class ResultWaiter {
                     logger.info(`Received result for GUID: ${guid}`);
                     clearTimeout(subscription.timeout);
 
+                    // Send acknowledgment immediately upon receiving the result
+                    try {
+                        if (this.wsManager.isConnected()) {
+                            await this.wsManager.sendAck(guid);
+                            logger.debug(`Sent acknowledgment for GUID: ${guid}`);
+                        }
+                    } catch (ackError) {
+                        logger.warn(`Failed to send acknowledgment for GUID ${guid}:`, ackError);
+                    }
+
+                    // Mark subscription as received to remove from pending list
+                    this.wsManager.markSubscriptionReceived(guid);
+
                     try {
                         const resolvedMessage = await this.resolveS3FileIfNeeded(message);
                         subscription.resolve(resolvedMessage as CompilationResult);

@@ -9,6 +9,11 @@ export interface WebSocketManagerOptions {
     pingInterval?: number;
 }
 
+export interface PendingSubscription {
+    guid: string;
+    timestamp: number;
+}
+
 export class WebSocketManager extends EventEmitter {
     private ws: WebSocket | null = null;
     private url: string;
@@ -19,6 +24,7 @@ export class WebSocketManager extends EventEmitter {
     private pingTimer?: NodeJS.Timeout;
     private isClosing = false;
     private subscriptions = new Set<string>();
+    private pendingSubscriptions = new Map<string, number>();
 
     constructor(options: WebSocketManagerOptions) {
         super();
@@ -41,6 +47,7 @@ export class WebSocketManager extends EventEmitter {
                 this.reconnectAttempts = 0;
                 this.startPing();
                 this.emit('connected');
+                this.resubscribePendingSubscriptions();
                 // Ensure connection is fully established before resolving
                 process.nextTick(() => resolve());
             });
@@ -115,11 +122,13 @@ export class WebSocketManager extends EventEmitter {
 
     subscribe(topic: string): Promise<void> {
         this.subscriptions.add(topic);
+        this.pendingSubscriptions.set(topic, Date.now());
         return this.send(`subscribe: ${topic}`);
     }
 
     unsubscribe(topic: string): Promise<void> {
         this.subscriptions.delete(topic);
+        this.pendingSubscriptions.delete(topic);
         return this.send(`unsubscribe: ${topic}`);
     }
 
@@ -127,6 +136,7 @@ export class WebSocketManager extends EventEmitter {
         this.isClosing = true;
         this.stopPing();
         this.subscriptions.clear();
+        this.pendingSubscriptions.clear();
 
         if (this.ws) {
             this.ws.close(1000, 'Client closing connection');
@@ -156,5 +166,43 @@ export class WebSocketManager extends EventEmitter {
 
     getSubscriptions(): Set<string> {
         return new Set(this.subscriptions);
+    }
+
+    sendAck(guid: string): Promise<void> {
+        return this.send(`ack: ${guid}`);
+    }
+
+    markSubscriptionReceived(guid: string): void {
+        this.pendingSubscriptions.delete(guid);
+    }
+
+    private async resubscribePendingSubscriptions(): Promise<void> {
+        const now = Date.now();
+        const oneMinute = 60 * 1000;
+        const toResubscribe: string[] = [];
+        const toRemove: string[] = [];
+
+        for (const [guid, timestamp] of this.pendingSubscriptions.entries()) {
+            if (now - timestamp > oneMinute) {
+                logger.info(`Removing expired pending subscription for GUID: ${guid}`);
+                toRemove.push(guid);
+            } else {
+                toResubscribe.push(guid);
+            }
+        }
+
+        toRemove.forEach(guid => this.pendingSubscriptions.delete(guid));
+
+        if (toResubscribe.length > 0) {
+            logger.info(`Resubscribing to ${toResubscribe.length} pending subscriptions after reconnection`);
+            for (const guid of toResubscribe) {
+                try {
+                    await this.send(`subscribe: ${guid}`);
+                    logger.debug(`Resubscribed to GUID: ${guid}`);
+                } catch (error) {
+                    logger.error(`Failed to resubscribe to GUID ${guid}:`, error);
+                }
+            }
+        }
     }
 }
