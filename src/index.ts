@@ -43,6 +43,9 @@ program
     .option('--logHost, --log-host <hostname>', 'Hostname for remote logging')
     .option('--logPort, --log-port <port>', 'Port for remote logging', parsePortNumberForOptions)
     .option('--env <environment>', 'Environment (prod, beta, staging) [required]', validateEnvironment)
+    .option('--sqs-max-size <bytes>', 'Maximum SQS message size in bytes (default: 262144)')
+    .option('--s3-overflow-bucket <bucket>', 'S3 bucket for overflow messages')
+    .option('--s3-overflow-prefix <prefix>', 'S3 key prefix for overflow messages (default: sqs-overflow/)')
     .parse();
 
 const options = program.opts();
@@ -78,6 +81,17 @@ const WEBSOCKET_URL = process.env.WEBSOCKET_URL || options.websocket || envConfi
 
 // Set environment name for other services to use
 process.env.ENVIRONMENT_NAME = envConfig.environmentName;
+
+// Set S3 overflow configuration from command line options
+if (options.sqsMaxSize) {
+    process.env.SQS_MAX_MESSAGE_SIZE = options.sqsMaxSize;
+}
+if (options.s3OverflowBucket) {
+    process.env.S3_OVERFLOW_BUCKET = options.s3OverflowBucket;
+}
+if (options.s3OverflowPrefix) {
+    process.env.S3_OVERFLOW_KEY_PREFIX = options.s3OverflowPrefix;
+}
 
 async function main() {
     // Initialize logging
