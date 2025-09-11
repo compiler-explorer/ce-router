@@ -1,15 +1,23 @@
 import {GetItemCommand} from '@aws-sdk/client-dynamodb';
+import {PutObjectCommand} from '@aws-sdk/client-s3';
 import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {GetParameterCommand} from '@aws-sdk/client-ssm';
 import {logger} from '../lib/logger.js';
 import {parseRequestBody} from '../utils/index.js';
-import {dynamoDBClient, sqsClient, ssmClient} from './aws-clients.js';
+import {dynamoDBClient, s3Client, sqsClient, ssmClient} from './aws-clients.js';
 
 // Cache for active color (with TTL)
 let activeColorCache = {
     color: null as string | null,
     timestamp: 0,
     TTL: 30000, // 30 seconds TTL
+};
+
+// Configuration for S3 overflow
+const S3_OVERFLOW_CONFIG = {
+    maxMessageSize: Number.parseInt(process.env.SQS_MAX_MESSAGE_SIZE || '262144', 10), // 256 KiB default
+    bucket: process.env.S3_OVERFLOW_BUCKET || 'compiler-explorer-sqs-overflow',
+    keyPrefix: process.env.S3_OVERFLOW_KEY_PREFIX || 'messages/',
 };
 
 // In-memory cache for routing lookups
@@ -283,12 +291,58 @@ export async function sendToSqs(
 
     try {
         const messageJson = JSON.stringify(messageBody);
+        const messageSize = Buffer.byteLength(messageJson, 'utf8');
+
+        let finalMessageBody: string;
+
+        // Check if message exceeds the configured size limit
+        if (messageSize > S3_OVERFLOW_CONFIG.maxMessageSize) {
+            logger.info(
+                `Message size (${messageSize} bytes) exceeds limit (${S3_OVERFLOW_CONFIG.maxMessageSize} bytes), storing in S3`,
+            );
+
+            // Generate S3 key
+            const environmentName = getEnvironmentName();
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const s3Key = `${S3_OVERFLOW_CONFIG.keyPrefix}${environmentName}/${timestamp}/${guid}.json`;
+
+            // Upload to S3
+            await s3Client.send(
+                new PutObjectCommand({
+                    Bucket: S3_OVERFLOW_CONFIG.bucket,
+                    Key: s3Key,
+                    Body: messageJson,
+                    ContentType: 'application/json',
+                    Metadata: {
+                        guid: guid,
+                        compilerId: compilerId,
+                        environment: environmentName,
+                        originalSize: messageSize.toString(),
+                    },
+                }),
+            );
+
+            logger.info(`Message stored in S3: s3://${S3_OVERFLOW_CONFIG.bucket}/${s3Key}`);
+
+            // Create a reference message for SQS
+            finalMessageBody = JSON.stringify({
+                type: 's3-overflow',
+                guid,
+                compilerId,
+                s3Bucket: S3_OVERFLOW_CONFIG.bucket,
+                s3Key,
+                originalSize: messageSize,
+                timestamp: new Date().toISOString(),
+            });
+        } else {
+            finalMessageBody = messageJson;
+        }
 
         logger.debug(`SQS send start for GUID: ${guid} to queue`);
         await sqsClient.send(
             new SendMessageCommand({
                 QueueUrl: queueUrl,
-                MessageBody: messageJson,
+                MessageBody: finalMessageBody,
                 MessageGroupId: 'default',
                 MessageDeduplicationId: guid,
             }),
