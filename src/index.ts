@@ -45,7 +45,7 @@ program
     .option('--env <environment>', 'Environment (prod, beta, staging) [required]', validateEnvironment)
     .option('--sqs-max-size <bytes>', 'Maximum SQS message size in bytes (default: 262144)')
     .option('--s3-overflow-bucket <bucket>', 'S3 bucket for overflow messages')
-    .option('--s3-overflow-prefix <prefix>', 'S3 key prefix for overflow messages (default: messages/)')
+    .option('--s3-overflow-prefix <prefix>', 'S3 key prefix for overflow messages (default: sqs-overflow/)')
     .parse();
 
 const options = program.opts();

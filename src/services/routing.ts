@@ -41,8 +41,8 @@ function getGreenQueueUrl(): string {
 function getOverflowConfig() {
     return {
         maxMessageSize: Number.parseInt(process.env.SQS_MAX_MESSAGE_SIZE || '262144', 10), // 256 KiB default
-        bucket: process.env.S3_OVERFLOW_BUCKET || 'compiler-explorer-sqs-overflow',
-        keyPrefix: process.env.S3_OVERFLOW_KEY_PREFIX || 'messages/',
+        bucket: process.env.S3_OVERFLOW_BUCKET || 'temp-storage.godbolt.org',
+        keyPrefix: process.env.S3_OVERFLOW_KEY_PREFIX || 'sqs-overflow/',
     };
 }
 
