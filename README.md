@@ -7,6 +7,7 @@ A TypeScript-based router service for Compiler Explorer that handles compilation
 - **Environment-based routing**: Support for production, beta, and staging environments
 - **Multiple routing modes**: Queue-based (SQS) and URL-based forwarding
 - **WebSocket integration**: Real-time compilation results via WebSocket connections
+- **S3 overflow support**: Automatic handling of large compilation outputs via S3 storage
 - **Comprehensive logging**: Winston-based structured logging with remote logging support
 - **CORS support**: Cross-origin request handling for web frontends
 
@@ -81,14 +82,14 @@ node dist/index.js --env prod --websocket wss://custom.websocket.url
 | `--websocket` | `-w` | WebSocket server URL | Environment-specific | |
 | `--logHost` | | Hostname for remote logging | | |
 | `--logPort` | | Port for remote logging | | |
+| `--sqs-max-size` | | Maximum SQS message size in bytes | `262144` | |
+| `--s3-overflow-bucket` | | S3 bucket for overflow messages | `temp-storage.godbolt.org` | |
+| `--s3-overflow-prefix` | | S3 key prefix for overflow messages | `sqs-overflow/` | |
 | `--help` | `-h` | Show help information | | |
 | `--version` | `-V` | Show version number | | |
 
 ## Environment Variables
 
-- `SQS_QUEUE_URL_BLUE_PROD` - Production SQS queue URL
-- `SQS_QUEUE_URL_BLUE_BETA` - Beta SQS queue URL  
-- `SQS_QUEUE_URL_BLUE_STAGING` - Staging SQS queue URL
 - AWS credentials for SQS, DynamoDB, and SSM access
 
 ## License
