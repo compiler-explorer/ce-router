@@ -13,13 +13,6 @@ let activeColorCache = {
     TTL: 30000, // 30 seconds TTL
 };
 
-// Configuration for S3 overflow
-const S3_OVERFLOW_CONFIG = {
-    maxMessageSize: Number.parseInt(process.env.SQS_MAX_MESSAGE_SIZE || '262144', 10), // 256 KiB default
-    bucket: process.env.S3_OVERFLOW_BUCKET || 'compiler-explorer-sqs-overflow',
-    keyPrefix: process.env.S3_OVERFLOW_KEY_PREFIX || 'messages/',
-};
-
 // In-memory cache for routing lookups
 const routingCache = new Map<string, RoutingInfo>();
 
@@ -43,6 +36,14 @@ function getGreenQueueUrl(): string {
     const env = getEnvironmentName();
     const defaultUrl = `https://sqs.us-east-1.amazonaws.com/052730242331/${env}-compilation-queue-green.fifo`;
     return process.env[`SQS_QUEUE_URL_GREEN_${env.toUpperCase()}`] || process.env.SQS_QUEUE_URL_GREEN || defaultUrl;
+}
+
+function getOverflowConfig() {
+    return {
+        maxMessageSize: Number.parseInt(process.env.SQS_MAX_MESSAGE_SIZE || '262144', 10), // 256 KiB default
+        bucket: process.env.S3_OVERFLOW_BUCKET || 'compiler-explorer-sqs-overflow',
+        keyPrefix: process.env.S3_OVERFLOW_KEY_PREFIX || 'messages/',
+    };
 }
 
 async function getActiveColor(): Promise<string> {
@@ -295,21 +296,23 @@ export async function sendToSqs(
 
         let finalMessageBody: string;
 
+        const overflowConfig = getOverflowConfig();
+
         // Check if message exceeds the configured size limit
-        if (messageSize > S3_OVERFLOW_CONFIG.maxMessageSize) {
+        if (messageSize > overflowConfig.maxMessageSize) {
             logger.info(
-                `Message size (${messageSize} bytes) exceeds limit (${S3_OVERFLOW_CONFIG.maxMessageSize} bytes), storing in S3`,
+                `Message size (${messageSize} bytes) exceeds limit (${overflowConfig.maxMessageSize} bytes), storing in S3`,
             );
 
             // Generate S3 key
             const environmentName = getEnvironmentName();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const s3Key = `${S3_OVERFLOW_CONFIG.keyPrefix}${environmentName}/${timestamp}/${guid}.json`;
+            const s3Key = `${overflowConfig.keyPrefix}${environmentName}/${timestamp}/${guid}.json`;
 
             // Upload to S3
             await s3Client.send(
                 new PutObjectCommand({
-                    Bucket: S3_OVERFLOW_CONFIG.bucket,
+                    Bucket: overflowConfig.bucket,
                     Key: s3Key,
                     Body: messageJson,
                     ContentType: 'application/json',
@@ -322,14 +325,14 @@ export async function sendToSqs(
                 }),
             );
 
-            logger.info(`Message stored in S3: s3://${S3_OVERFLOW_CONFIG.bucket}/${s3Key}`);
+            logger.info(`Message stored in S3: s3://${overflowConfig.bucket}/${s3Key}`);
 
             // Create a reference message for SQS
             finalMessageBody = JSON.stringify({
                 type: 's3-overflow',
                 guid,
                 compilerId,
-                s3Bucket: S3_OVERFLOW_CONFIG.bucket,
+                s3Bucket: overflowConfig.bucket,
                 s3Key,
                 originalSize: messageSize,
                 timestamp: new Date().toISOString(),
