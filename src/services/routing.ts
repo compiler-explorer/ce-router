@@ -307,7 +307,7 @@ export async function sendToSqs(
             // Generate S3 key
             const environmentName = getEnvironmentName();
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const s3Key = `${overflowConfig.keyPrefix}${environmentName}/${timestamp}/${guid}.json`;
+            const s3Key = `${overflowConfig.keyPrefix}${environmentName}/${timestamp}-${guid}.json`;
 
             // Upload to S3
             await s3Client.send(
