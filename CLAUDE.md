@@ -52,3 +52,4 @@ The service maintains a persistent WebSocket connection to `wss://events.compile
 - Strict TypeScript configuration with unused parameter/local detection
 
 The codebase is a TypeScript replacement for an AWS Lambda function, designed to handle Compiler Explorer routing requests with WebSocket-based real-time communication.
+- always lint and check the code when you have finished code changes

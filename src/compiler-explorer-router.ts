@@ -266,7 +266,9 @@ export class CompilerExplorerRouter {
                 const preview = response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body;
                 logger.info(`Response body (string): ${preview}`);
             } else {
-                logger.info(`Response body type: ${typeof response.body}, constructor: ${response.body?.constructor?.name || 'unknown'}`);
+                const bodyType = typeof response.body;
+                const constructorName = response.body && typeof response.body === 'object' ? (response.body as any).constructor?.name : 'unknown';
+                logger.info(`Response body type: ${bodyType}, constructor: ${constructorName}`);
             }
 
             // Send the response
