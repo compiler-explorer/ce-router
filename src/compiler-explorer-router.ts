@@ -278,11 +278,6 @@ export class CompilerExplorerRouter {
                 logger.info('Status set successfully');
                 res.set(responseHeaders);
                 logger.info('Headers set successfully');
-                const endStartTime = Date.now();
-                res.end(bodyBuffer, () => {
-                    const endDuration = Date.now() - endStartTime;
-                    logger.info(`Response sent successfully for ${compilerid} - res.end took ${endDuration}ms`);
-                });
 
                 // Handle any response errors
                 res.on('error', err => {
@@ -298,7 +293,9 @@ export class CompilerExplorerRouter {
                 res.on('close', () => {
                     logger.info(`Response connection closed for ${compilerid}`);
                 });
-                logger.info(`Called res.end for ${compilerid} with status ${response.statusCode}`);
+
+                res.send(bodyBuffer);
+                logger.info(`Called res.send for ${compilerid} with status ${response.statusCode}`);
             } catch (sendError) {
                 logger.error(`Error sending response to client: ${(sendError as Error).message}`);
                 logger.error('Send error stack:', (sendError as Error).stack);
