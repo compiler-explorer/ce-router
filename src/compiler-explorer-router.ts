@@ -203,12 +203,17 @@ export class CompilerExplorerRouter {
         await this.resultWaiter.unsubscribe(guid);
 
         try {
+            logger.info(`Starting URL forwarding for ${compilerid} to ${routingInfo.target}`);
             const response = await forwardToEnvironmentUrl(
                 compilerid,
                 routingInfo.target,
                 body,
                 isCmake,
                 headers as Record<string, string | string[]>,
+            );
+
+            logger.info(
+                `Got response from forwardToEnvironmentUrl: status=${response.statusCode}, body length=${response.body.length}`,
             );
 
             // Ensure CORS headers are present
@@ -219,10 +224,14 @@ export class CompilerExplorerRouter {
                 'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
             };
 
+            logger.info(`Sending response to client with status ${response.statusCode}`);
             res.status(response.statusCode).set(responseHeaders).send(response.body);
+            logger.info(`Successfully forwarded response for ${compilerid} with status ${response.statusCode}`);
         } catch (error) {
             logger.error('URL forwarding error:', error);
-            const errorResponse = createErrorResponse(500, `Failed to forward request: ${(error as Error).message}`);
+            logger.error('Error stack:', (error as Error).stack);
+            const errorResponse = createErrorResponse(502, `Failed to forward request: ${(error as Error).message}`);
+            logger.info(`Sending error response with status ${errorResponse.statusCode}`);
             res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
         }
     }

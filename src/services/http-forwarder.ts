@@ -47,8 +47,10 @@ export async function forwardToEnvironmentUrl(
         logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
 
         const forwardHeaders = prepareForwardHeaders(headers);
+        logger.info('Forward headers:', forwardHeaders);
 
         // Make the HTTP request
+        logger.info(`Making POST request to ${fullUrl} with body length: ${body.length}`);
         const response = await axios({
             method: 'POST',
             url: fullUrl,
@@ -56,17 +58,36 @@ export async function forwardToEnvironmentUrl(
             headers: forwardHeaders,
             timeout: 60000, // 60 second timeout
             validateStatus: () => true, // Don't throw on any status code
+            maxContentLength: Number.POSITIVE_INFINITY,
+            maxBodyLength: Number.POSITIVE_INFINITY,
+            responseType: 'text', // Force text response to avoid parsing issues
+            transformResponse: [data => data], // Don't let axios parse the response
         });
 
-        logger.debug(`Forwarding response status: ${response.status}`);
+        const responseBody = response.data || '';
+        logger.info(`Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}`);
+        logger.info('Response headers:', response.headers);
 
-        return {
+        const result = {
             statusCode: response.status,
             headers: response.headers as Record<string, string>,
-            body: typeof response.data === 'string' ? response.data : JSON.stringify(response.data),
+            body: responseBody,
         };
+        logger.info(`Returning response with status ${result.statusCode} and body length ${result.body.length}`);
+        return result;
     } catch (error) {
         logger.error('HTTP forwarding error:', error);
+        logger.error('Error details:', {
+            message: (error as Error).message,
+            code: axios.isAxiosError(error) ? error.code : undefined,
+            response:
+                axios.isAxiosError(error) && error.response
+                    ? {
+                          status: error.response.status,
+                          data: error.response.data,
+                      }
+                    : undefined,
+        });
 
         if (axios.isAxiosError(error)) {
             if (error.code === 'ECONNABORTED') {
