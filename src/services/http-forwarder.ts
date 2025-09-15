@@ -69,9 +69,15 @@ export async function forwardToEnvironmentUrl(
             `Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}`,
         );
 
+        // Clean response headers to prevent conflicts
+        const cleanResponseHeaders = {...(response.headers as Record<string, string>)};
+        delete cleanResponseHeaders['transfer-encoding']; // Conflicts with content-length
+        delete cleanResponseHeaders['connection'];
+        delete cleanResponseHeaders['upgrade'];
+
         const result = {
             statusCode: response.status,
-            headers: response.headers as Record<string, string>,
+            headers: cleanResponseHeaders,
             body: responseBody,
         };
         return result;
