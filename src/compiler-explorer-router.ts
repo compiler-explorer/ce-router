@@ -261,15 +261,8 @@ export class CompilerExplorerRouter {
                 logger.warn(`Response body size ${bodyBuffer.length} bytes exceeds 1MB - may cause ALB issues`);
             }
 
-            // TEMPORARY: Test if size is the issue by truncating large responses
-            let finalBuffer = bodyBuffer;
-            if (bodyBuffer.length > 50000) {
-                logger.warn(
-                    `TESTING: Truncating response from ${bodyBuffer.length} to 50000 bytes to test size limits`,
-                );
-                finalBuffer = bodyBuffer.subarray(0, 50000);
-                responseHeaders['content-length'] = finalBuffer.length.toString();
-            }
+            // Log the response body for debugging
+            logger.info(`Response body: ${response.body}`);
 
             // Send the response
             try {
@@ -279,7 +272,7 @@ export class CompilerExplorerRouter {
                 res.set(responseHeaders);
                 logger.info('Headers set successfully');
                 const endStartTime = Date.now();
-                res.end(finalBuffer, () => {
+                res.end(bodyBuffer, () => {
                     const endDuration = Date.now() - endStartTime;
                     logger.info(`Response sent successfully for ${compilerid} - res.end took ${endDuration}ms`);
                 });
