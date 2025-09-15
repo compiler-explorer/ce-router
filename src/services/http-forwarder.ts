@@ -7,6 +7,32 @@ export interface ForwardResponse {
     body: string;
 }
 
+export function buildForwardUrl(targetUrl: string): string {
+    return targetUrl.replace(/\/$/, '');
+}
+
+export function prepareForwardHeaders(headers: Record<string, string | string[]>): Record<string, string> {
+    const forwardHeaders: Record<string, string> = {};
+    Object.entries(headers).forEach(([key, value]) => {
+        if (Array.isArray(value)) {
+            forwardHeaders[key] = value.join(', ');
+        } else {
+            forwardHeaders[key] = value;
+        }
+    });
+
+    // Remove hop-by-hop headers
+    delete forwardHeaders['connection'];
+    delete forwardHeaders['upgrade'];
+    delete forwardHeaders['proxy-authenticate'];
+    delete forwardHeaders['proxy-authorization'];
+    delete forwardHeaders['te'];
+    delete forwardHeaders['trailers'];
+    delete forwardHeaders['transfer-encoding'];
+
+    return forwardHeaders;
+}
+
 export async function forwardToEnvironmentUrl(
     compilerId: string,
     targetUrl: string,
@@ -15,30 +41,12 @@ export async function forwardToEnvironmentUrl(
     headers: Record<string, string | string[]>,
 ): Promise<ForwardResponse> {
     try {
-        // Build the full URL for the request
+        const fullUrl = buildForwardUrl(targetUrl);
         const endpoint = isCmake ? 'cmake' : 'compile';
-        const fullUrl = `${targetUrl.replace(/\/$/, '')}/api/compiler/${compilerId}/${endpoint}`;
 
         logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
 
-        // Prepare headers, converting string arrays to strings
-        const forwardHeaders: Record<string, string> = {};
-        Object.entries(headers).forEach(([key, value]) => {
-            if (Array.isArray(value)) {
-                forwardHeaders[key] = value.join(', ');
-            } else {
-                forwardHeaders[key] = value;
-            }
-        });
-
-        // Remove hop-by-hop headers
-        delete forwardHeaders['connection'];
-        delete forwardHeaders['upgrade'];
-        delete forwardHeaders['proxy-authenticate'];
-        delete forwardHeaders['proxy-authorization'];
-        delete forwardHeaders['te'];
-        delete forwardHeaders['trailers'];
-        delete forwardHeaders['transfer-encoding'];
+        const forwardHeaders = prepareForwardHeaders(headers);
 
         // Make the HTTP request
         const response = await axios({
