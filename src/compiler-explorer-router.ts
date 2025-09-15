@@ -112,7 +112,7 @@ export class CompilerExplorerRouter {
         });
 
         // Add error handler for Express
-        this.app.use((err: any, req: Request, res: Response, next: any) => {
+        this.app.use((err: any, req: Request, res: Response, _next: any) => {
             logger.error('Express error handler caught error:', err);
             logger.error('Error stack:', err.stack);
             logger.error('Request URL:', req.url);
@@ -261,12 +261,13 @@ export class CompilerExplorerRouter {
                 logger.info('Status set successfully');
                 res.set(responseHeaders);
                 logger.info('Headers set successfully');
-                res.end(bodyBuffer, err => {
-                    if (err) {
-                        logger.error('Error in res.end callback:', err);
-                    } else {
-                        logger.info(`Response sent successfully for ${compilerid}`);
-                    }
+                res.end(bodyBuffer, () => {
+                    logger.info(`Response sent successfully for ${compilerid}`);
+                });
+
+                // Handle any response errors
+                res.on('error', (err) => {
+                    logger.error('Error sending response:', err);
                 });
                 logger.info(`Called res.end for ${compilerid} with status ${response.statusCode}`);
             } catch (sendError) {
