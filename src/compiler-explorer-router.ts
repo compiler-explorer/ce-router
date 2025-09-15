@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import express from 'express';
 import type {Application, Request, Response} from 'express';
 import {logger} from './lib/logger.js';
@@ -251,8 +252,24 @@ export class CompilerExplorerRouter {
 
             // Set content-length header explicitly to help proxies
             const bodyBuffer = Buffer.from(response.body);
+            const bodyHash = createHash('md5').update(bodyBuffer).digest('hex');
             responseHeaders['content-length'] = bodyBuffer.length.toString();
-            logger.info(`Response body is ${bodyBuffer.length} bytes, setting content-length header`);
+            logger.info(`Response body is ${bodyBuffer.length} bytes, MD5: ${bodyHash}, setting content-length header`);
+
+            // Check if response is too large for some proxies (ALB limit is 1MB)
+            if (bodyBuffer.length > 1000000) {
+                logger.warn(`Response body size ${bodyBuffer.length} bytes exceeds 1MB - may cause ALB issues`);
+            }
+
+            // TEMPORARY: Test if size is the issue by truncating large responses
+            let finalBuffer = bodyBuffer;
+            if (bodyBuffer.length > 50000) {
+                logger.warn(
+                    `TESTING: Truncating response from ${bodyBuffer.length} to 50000 bytes to test size limits`,
+                );
+                finalBuffer = bodyBuffer.subarray(0, 50000);
+                responseHeaders['content-length'] = finalBuffer.length.toString();
+            }
 
             // Send the response
             try {
@@ -261,13 +278,25 @@ export class CompilerExplorerRouter {
                 logger.info('Status set successfully');
                 res.set(responseHeaders);
                 logger.info('Headers set successfully');
-                res.end(bodyBuffer, () => {
-                    logger.info(`Response sent successfully for ${compilerid}`);
+                const endStartTime = Date.now();
+                res.end(finalBuffer, () => {
+                    const endDuration = Date.now() - endStartTime;
+                    logger.info(`Response sent successfully for ${compilerid} - res.end took ${endDuration}ms`);
                 });
 
                 // Handle any response errors
-                res.on('error', (err) => {
+                res.on('error', err => {
                     logger.error('Error sending response:', err);
+                });
+
+                // Handle response finish event
+                res.on('finish', () => {
+                    logger.info(`Response finished for ${compilerid}`);
+                });
+
+                // Handle response close event
+                res.on('close', () => {
+                    logger.info(`Response connection closed for ${compilerid}`);
                 });
                 logger.info(`Called res.end for ${compilerid} with status ${response.statusCode}`);
             } catch (sendError) {
