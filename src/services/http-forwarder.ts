@@ -21,14 +21,14 @@ export function prepareForwardHeaders(headers: Record<string, string | string[]>
         }
     });
 
-    // Remove hop-by-hop headers
+    // Remove hop-by-hop headers and headers that conflict with our processing
     delete forwardHeaders['connection'];
     delete forwardHeaders['upgrade'];
     delete forwardHeaders['proxy-authenticate'];
     delete forwardHeaders['proxy-authorization'];
     delete forwardHeaders['te'];
     delete forwardHeaders['trailers'];
-    delete forwardHeaders['transfer-encoding'];
+    delete forwardHeaders['transfer-encoding']; // Conflicts with content-length we set
 
     return forwardHeaders;
 }
@@ -40,7 +40,6 @@ export async function forwardToEnvironmentUrl(
     isCmake: boolean,
     headers: Record<string, string | string[]>,
 ): Promise<ForwardResponse> {
-    const startTime = Date.now();
     try {
         const fullUrl = buildForwardUrl(targetUrl);
         const endpoint = isCmake ? 'cmake' : 'compile';
@@ -48,11 +47,10 @@ export async function forwardToEnvironmentUrl(
         logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
 
         const forwardHeaders = prepareForwardHeaders(headers);
-        logger.info('Forward headers:', forwardHeaders);
+        logger.debug('Forward headers:', forwardHeaders);
 
         // Make the HTTP request
-        logger.info(`Making POST request to ${fullUrl} with body length: ${body.length}`);
-        const requestStartTime = Date.now();
+        logger.debug(`Making POST request to ${fullUrl} with body length: ${body.length}`);
         const response = await axios({
             method: 'POST',
             url: fullUrl,
@@ -66,36 +64,19 @@ export async function forwardToEnvironmentUrl(
             transformResponse: [data => data], // Don't let axios parse the response
         });
 
-        const requestDuration = Date.now() - requestStartTime;
         const responseBody = response.data || '';
-        logger.info(
-            `Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}, request took ${requestDuration}ms`,
+        logger.debug(
+            `Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}`,
         );
-        logger.info('Response headers:', response.headers);
 
         const result = {
             statusCode: response.status,
             headers: response.headers as Record<string, string>,
             body: responseBody,
         };
-        const totalDuration = Date.now() - startTime;
-        logger.info(
-            `Returning response with status ${result.statusCode} and body length ${result.body.length}, total time ${totalDuration}ms`,
-        );
         return result;
     } catch (error) {
         logger.error('HTTP forwarding error:', error);
-        logger.error('Error details:', {
-            message: (error as Error).message,
-            code: axios.isAxiosError(error) ? error.code : undefined,
-            response:
-                axios.isAxiosError(error) && error.response
-                    ? {
-                          status: error.response.status,
-                          data: error.response.data,
-                      }
-                    : undefined,
-        });
 
         if (axios.isAxiosError(error)) {
             if (error.code === 'ECONNABORTED') {

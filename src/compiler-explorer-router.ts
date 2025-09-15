@@ -1,4 +1,3 @@
-import {createHash} from 'node:crypto';
 import express from 'express';
 import type {Application, Request, Response} from 'express';
 import {logger} from './lib/logger.js';
@@ -219,7 +218,7 @@ export class CompilerExplorerRouter {
         await this.resultWaiter.unsubscribe(guid);
 
         try {
-            logger.info(`Starting URL forwarding for ${compilerid} to ${routingInfo.target}`);
+            logger.debug(`Starting URL forwarding for ${compilerid} to ${routingInfo.target}`);
             const response = await forwardToEnvironmentUrl(
                 compilerid,
                 routingInfo.target,
@@ -228,11 +227,11 @@ export class CompilerExplorerRouter {
                 headers as Record<string, string | string[]>,
             );
 
-            logger.info(
+            logger.debug(
                 `Got response from forwardToEnvironmentUrl: status=${response.statusCode}, body length=${response.body.length}`,
             );
 
-            // Ensure CORS headers are present and clean up conflicting headers
+            // Ensure CORS headers are present
             const responseHeaders: Record<string, string> = {
                 ...response.headers,
                 'Access-Control-Allow-Origin': '*',
@@ -240,74 +239,31 @@ export class CompilerExplorerRouter {
                 'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
             };
 
-            // Remove transfer-encoding if present since we're setting content-length
-            delete responseHeaders['transfer-encoding'];
-
             // Check if response was already sent
             if (res.headersSent) {
                 logger.error(`Headers already sent for ${compilerid}, cannot send response`);
                 return;
             }
 
-            logger.info(
-                `Sending response to client with status ${response.statusCode}, body length ${response.body.length}`,
-            );
-
             // Set content-length header explicitly to help proxies
             const bodyBuffer = Buffer.from(response.body);
-            const bodyHash = createHash('md5').update(bodyBuffer).digest('hex');
             responseHeaders['content-length'] = bodyBuffer.length.toString();
-            logger.info(`Response body is ${bodyBuffer.length} bytes, MD5: ${bodyHash}, setting content-length header`);
 
             // Check if response is too large for some proxies (ALB limit is 1MB)
             if (bodyBuffer.length > 1000000) {
                 logger.warn(`Response body size ${bodyBuffer.length} bytes exceeds 1MB - may cause ALB issues`);
             }
 
-            // Log response body type and sample
-            if (typeof response.body === 'string') {
-                const preview = response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body;
-                logger.info(`Response body (string): ${preview}`);
-            } else {
-                const bodyType = typeof response.body;
-                const constructorName = response.body && typeof response.body === 'object' ? (response.body as any).constructor?.name : 'unknown';
-                logger.info(`Response body type: ${bodyType}, constructor: ${constructorName}`);
-            }
-
             // Send the response
             try {
-                logger.info(`About to send response with status ${response.statusCode}`);
-                res.status(response.statusCode);
-                logger.info('Status set successfully');
-                res.set(responseHeaders);
-                logger.info('Headers set successfully');
-
-                // Handle any response errors
-                res.on('error', err => {
-                    logger.error('Error sending response:', err);
-                });
-
-                // Handle response finish event
-                res.on('finish', () => {
-                    logger.info(`Response finished for ${compilerid}`);
-                });
-
-                // Handle response close event
-                res.on('close', () => {
-                    logger.info(`Response connection closed for ${compilerid}`);
-                });
-
-                res.send(bodyBuffer);
-                logger.info(`Called res.send for ${compilerid} with status ${response.statusCode}`);
+                res.status(response.statusCode).set(responseHeaders).send(bodyBuffer);
+                logger.info(`Successfully forwarded response for ${compilerid} with status ${response.statusCode}`);
             } catch (sendError) {
                 logger.error(`Error sending response to client: ${(sendError as Error).message}`);
-                logger.error('Send error stack:', (sendError as Error).stack);
                 throw sendError; // Re-throw to be caught by outer catch
             }
         } catch (error) {
             logger.error('URL forwarding error:', error);
-            logger.error('Error stack:', (error as Error).stack);
-            logger.error('Error occurred after receiving response, might be a send issue');
 
             // Check if response was already sent
             if (res.headersSent) {
@@ -316,7 +272,6 @@ export class CompilerExplorerRouter {
             }
 
             const errorResponse = createErrorResponse(502, `Failed to forward request: ${(error as Error).message}`);
-            logger.info(`Sending error response with status ${errorResponse.statusCode}`);
             res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
         }
     }

@@ -97,5 +97,19 @@ describe('HTTP Forwarder', () => {
                 cookie: 'session=abc, preference=dark',
             });
         });
+
+        it('should remove transfer-encoding header to prevent conflicts with content-length', () => {
+            const headers = {
+                'content-type': 'application/json',
+                'transfer-encoding': 'chunked',
+                'content-length': '1234',
+                'x-custom-header': 'value',
+            };
+            const result = prepareForwardHeaders(headers);
+            expect(result['transfer-encoding']).toBeUndefined();
+            expect(result['content-type']).toBe('application/json');
+            expect(result['content-length']).toBe('1234');
+            expect(result['x-custom-header']).toBe('value');
+        });
     });
 });
