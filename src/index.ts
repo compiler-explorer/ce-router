@@ -139,6 +139,16 @@ async function main() {
 
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+    // Add error handlers for debugging 502 issues
+    process.on('uncaughtException', error => {
+        logger.error('Uncaught Exception:', error);
+        logger.error('Stack:', error.stack);
+    });
+
+    process.on('unhandledRejection', (reason, promise) => {
+        logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    });
 }
 
 main().catch(error => {

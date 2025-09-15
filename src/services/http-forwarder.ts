@@ -40,6 +40,7 @@ export async function forwardToEnvironmentUrl(
     isCmake: boolean,
     headers: Record<string, string | string[]>,
 ): Promise<ForwardResponse> {
+    const startTime = Date.now();
     try {
         const fullUrl = buildForwardUrl(targetUrl);
         const endpoint = isCmake ? 'cmake' : 'compile';
@@ -51,6 +52,7 @@ export async function forwardToEnvironmentUrl(
 
         // Make the HTTP request
         logger.info(`Making POST request to ${fullUrl} with body length: ${body.length}`);
+        const requestStartTime = Date.now();
         const response = await axios({
             method: 'POST',
             url: fullUrl,
@@ -64,8 +66,11 @@ export async function forwardToEnvironmentUrl(
             transformResponse: [data => data], // Don't let axios parse the response
         });
 
+        const requestDuration = Date.now() - requestStartTime;
         const responseBody = response.data || '';
-        logger.info(`Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}`);
+        logger.info(
+            `Received response from ${fullUrl}: status=${response.status}, body length=${responseBody.length}, request took ${requestDuration}ms`,
+        );
         logger.info('Response headers:', response.headers);
 
         const result = {
@@ -73,7 +78,10 @@ export async function forwardToEnvironmentUrl(
             headers: response.headers as Record<string, string>,
             body: responseBody,
         };
-        logger.info(`Returning response with status ${result.statusCode} and body length ${result.body.length}`);
+        const totalDuration = Date.now() - startTime;
+        logger.info(
+            `Returning response with status ${result.statusCode} and body length ${result.body.length}, total time ${totalDuration}ms`,
+        );
         return result;
     } catch (error) {
         logger.error('HTTP forwarding error:', error);

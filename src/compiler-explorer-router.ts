@@ -110,6 +110,21 @@ export class CompilerExplorerRouter {
         this.app.post('/api/compiler/:compilerid/cmake', (req: CompilerRequest, res: Response) => {
             this.handleCompilationRequest(req, res, true);
         });
+
+        // Add error handler for Express
+        this.app.use((err: any, req: Request, res: Response, next: any) => {
+            logger.error('Express error handler caught error:', err);
+            logger.error('Error stack:', err.stack);
+            logger.error('Request URL:', req.url);
+            logger.error('Request method:', req.method);
+
+            if (!res.headersSent) {
+                logger.error('Sending 502 response due to Express error');
+                res.status(502).json({error: 'Internal server error'});
+            } else {
+                logger.error('Headers already sent, cannot send error response');
+            }
+        });
     }
 
     private handleHealthCheck(_req: Request, res: Response): void {
@@ -217,19 +232,59 @@ export class CompilerExplorerRouter {
             );
 
             // Ensure CORS headers are present
-            const responseHeaders = {
+            const responseHeaders: Record<string, string> = {
                 ...response.headers,
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
             };
 
-            logger.info(`Sending response to client with status ${response.statusCode}`);
-            res.status(response.statusCode).set(responseHeaders).send(response.body);
-            logger.info(`Successfully forwarded response for ${compilerid} with status ${response.statusCode}`);
+            // Check if response was already sent
+            if (res.headersSent) {
+                logger.error(`Headers already sent for ${compilerid}, cannot send response`);
+                return;
+            }
+
+            logger.info(
+                `Sending response to client with status ${response.statusCode}, body length ${response.body.length}`,
+            );
+
+            // Set content-length header explicitly to help proxies
+            const bodyBuffer = Buffer.from(response.body);
+            responseHeaders['content-length'] = bodyBuffer.length.toString();
+            logger.info(`Response body is ${bodyBuffer.length} bytes, setting content-length header`);
+
+            // Send the response
+            try {
+                logger.info(`About to send response with status ${response.statusCode}`);
+                res.status(response.statusCode);
+                logger.info('Status set successfully');
+                res.set(responseHeaders);
+                logger.info('Headers set successfully');
+                res.end(bodyBuffer, err => {
+                    if (err) {
+                        logger.error('Error in res.end callback:', err);
+                    } else {
+                        logger.info(`Response sent successfully for ${compilerid}`);
+                    }
+                });
+                logger.info(`Called res.end for ${compilerid} with status ${response.statusCode}`);
+            } catch (sendError) {
+                logger.error(`Error sending response to client: ${(sendError as Error).message}`);
+                logger.error('Send error stack:', (sendError as Error).stack);
+                throw sendError; // Re-throw to be caught by outer catch
+            }
         } catch (error) {
             logger.error('URL forwarding error:', error);
             logger.error('Error stack:', (error as Error).stack);
+            logger.error('Error occurred after receiving response, might be a send issue');
+
+            // Check if response was already sent
+            if (res.headersSent) {
+                logger.error('Headers already sent, cannot send error response');
+                return;
+            }
+
             const errorResponse = createErrorResponse(502, `Failed to forward request: ${(error as Error).message}`);
             logger.info(`Sending error response with status ${errorResponse.statusCode}`);
             res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
