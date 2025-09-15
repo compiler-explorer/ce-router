@@ -261,8 +261,13 @@ export class CompilerExplorerRouter {
                 logger.warn(`Response body size ${bodyBuffer.length} bytes exceeds 1MB - may cause ALB issues`);
             }
 
-            // Log the response body for debugging
-            logger.info(`Response body: ${response.body}`);
+            // Log response body type and sample
+            if (typeof response.body === 'string') {
+                const preview = response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body;
+                logger.info(`Response body (string): ${preview}`);
+            } else {
+                logger.info(`Response body type: ${typeof response.body}, constructor: ${response.body?.constructor?.name || 'unknown'}`);
+            }
 
             // Send the response
             try {
