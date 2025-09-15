@@ -232,13 +232,16 @@ export class CompilerExplorerRouter {
                 `Got response from forwardToEnvironmentUrl: status=${response.statusCode}, body length=${response.body.length}`,
             );
 
-            // Ensure CORS headers are present
+            // Ensure CORS headers are present and clean up conflicting headers
             const responseHeaders: Record<string, string> = {
                 ...response.headers,
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
             };
+
+            // Remove transfer-encoding if present since we're setting content-length
+            delete responseHeaders['transfer-encoding'];
 
             // Check if response was already sent
             if (res.headersSent) {
