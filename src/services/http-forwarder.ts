@@ -33,6 +33,24 @@ export function prepareForwardHeaders(headers: Record<string, string | string[]>
     return forwardHeaders;
 }
 
+export function filterResponseHeaders(headers: Record<string, string>): Record<string, string> {
+    const filteredHeaders = {...headers};
+
+    // Remove headers that conflict with content-length or cause HTTP protocol violations
+    delete filteredHeaders['transfer-encoding']; // Conflicts with content-length
+
+    // Remove hop-by-hop headers that shouldn't be forwarded
+    delete filteredHeaders['connection'];
+    delete filteredHeaders['upgrade'];
+    delete filteredHeaders['proxy-connection'];
+    delete filteredHeaders['keep-alive'];
+
+    // Remove headers that proxies typically handle themselves
+    delete filteredHeaders['via']; // Will be added by ALB/CloudFront
+
+    return filteredHeaders;
+}
+
 export async function forwardToEnvironmentUrl(
     compilerId: string,
     targetUrl: string,
@@ -70,10 +88,7 @@ export async function forwardToEnvironmentUrl(
         );
 
         // Clean response headers to prevent conflicts
-        const cleanResponseHeaders = {...(response.headers as Record<string, string>)};
-        delete cleanResponseHeaders['transfer-encoding']; // Conflicts with content-length
-        delete cleanResponseHeaders['connection'];
-        delete cleanResponseHeaders['upgrade'];
+        const cleanResponseHeaders = filterResponseHeaders(response.headers as Record<string, string>);
 
         const result = {
             statusCode: response.status,
