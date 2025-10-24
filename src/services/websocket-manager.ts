@@ -164,6 +164,18 @@ export class WebSocketManager extends EventEmitter {
         return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
     }
 
+    hasExhaustedReconnectAttempts(): boolean {
+        return this.reconnectAttempts >= this.maxReconnectAttempts && !this.isConnected();
+    }
+
+    getReconnectAttempts(): number {
+        return this.reconnectAttempts;
+    }
+
+    getMaxReconnectAttempts(): number {
+        return this.maxReconnectAttempts;
+    }
+
     getSubscriptions(): Set<string> {
         return new Set(this.subscriptions);
     }

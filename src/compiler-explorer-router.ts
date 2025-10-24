@@ -129,10 +129,33 @@ export class CompilerExplorerRouter {
 
     private handleHealthCheck(_req: Request, res: Response): void {
         logger.info('Received healthcheck request');
+        const isConnected = this.wsManager.isConnected();
+        const hasExhaustedRetries = this.wsManager.hasExhaustedReconnectAttempts();
+        const reconnectAttempts = this.wsManager.getReconnectAttempts();
+        const maxReconnectAttempts = this.wsManager.getMaxReconnectAttempts();
+
+        // Fail healthcheck if WebSocket is disconnected and max reconnect attempts reached
+        if (hasExhaustedRetries) {
+            logger.warn(
+                `Healthcheck failing: WebSocket disconnected and max reconnect attempts (${maxReconnectAttempts}) exhausted`,
+            );
+            res.status(503).json({
+                status: 'unhealthy',
+                timestamp: new Date().toISOString(),
+                websocket: 'disconnected',
+                reconnectAttempts,
+                maxReconnectAttempts,
+                reason: 'WebSocket connection failed and max reconnect attempts exhausted',
+            });
+            return;
+        }
+
         res.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
-            websocket: this.wsManager.isConnected() ? 'connected' : 'disconnected',
+            websocket: isConnected ? 'connected' : 'disconnected',
+            reconnectAttempts: isConnected ? 0 : reconnectAttempts,
+            maxReconnectAttempts,
         });
     }
 

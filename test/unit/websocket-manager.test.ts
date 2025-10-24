@@ -244,4 +244,49 @@ describe('WebSocketManager', () => {
             expect(connectedSpy).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('reconnect status tracking', () => {
+        it('should track reconnect attempts', async () => {
+            expect(manager.getReconnectAttempts()).toBe(0);
+            expect(manager.getMaxReconnectAttempts()).toBe(3);
+
+            await manager.connect();
+            const ws = (manager as any).ws as MockWebSocket;
+            ws.simulateClose(1006, 'Connection lost');
+
+            await vi.waitFor(
+                () => {
+                    expect(manager.getReconnectAttempts()).toBeGreaterThan(0);
+                },
+                {timeout: 500},
+            );
+        });
+
+        it('should report exhausted reconnect attempts when max reached and disconnected', async () => {
+            await manager.connect();
+            expect(manager.hasExhaustedReconnectAttempts()).toBe(false);
+
+            // Close the connection
+            const ws = (manager as any).ws as MockWebSocket;
+            ws.simulateClose(1006, 'Connection lost');
+
+            // Manually set reconnect attempts to max (simulating exhausted retries)
+            // This is necessary because MockWebSocket always succeeds on reconnect
+            (manager as any).reconnectAttempts = manager.getMaxReconnectAttempts();
+            (manager as any).ws = null; // Ensure disconnected state
+
+            expect(manager.hasExhaustedReconnectAttempts()).toBe(true);
+        });
+
+        it('should not report exhausted when connected', async () => {
+            await manager.connect();
+            expect(manager.isConnected()).toBe(true);
+            expect(manager.hasExhaustedReconnectAttempts()).toBe(false);
+        });
+
+        it('should not report exhausted when attempts below max', async () => {
+            // Before any connection attempts
+            expect(manager.hasExhaustedReconnectAttempts()).toBe(false);
+        });
+    });
 });

@@ -15,15 +15,33 @@ describe('CompilerExplorerRouter', () => {
     });
 
     describe('Health Check', () => {
-        it('should return healthy status', async () => {
+        it('should return healthy status when WebSocket is connected', async () => {
             const response = await request(app).get('/healthcheck');
 
             expect(response.status).toBe(200);
             expect(response.body).toMatchObject({
                 status: 'healthy',
                 websocket: 'connected',
+                reconnectAttempts: 0,
             });
             expect(response.body.timestamp).toBeDefined();
+            expect(response.body.maxReconnectAttempts).toBeDefined();
+        });
+
+        it('should return unhealthy status (503) when WebSocket exhausted reconnect attempts', async () => {
+            // Simulate exhausted reconnect attempts
+            router.getMockWebSocketManager().simulateExhaustedReconnects();
+
+            const response = await request(app).get('/healthcheck');
+
+            expect(response.status).toBe(503);
+            expect(response.body).toMatchObject({
+                status: 'unhealthy',
+                websocket: 'disconnected',
+                reason: 'WebSocket connection failed and max reconnect attempts exhausted',
+            });
+            expect(response.body.timestamp).toBeDefined();
+            expect(response.body.reconnectAttempts).toBeGreaterThanOrEqual(response.body.maxReconnectAttempts);
         });
     });
 

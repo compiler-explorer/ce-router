@@ -7,10 +7,11 @@ import {MockRoutingService} from './routing-service.js';
 export class TestableCompilerExplorerRouter extends CompilerExplorerRouter {
     private mockRoutingService: MockRoutingService;
     private mockResultWaiter: MockResultWaiter;
+    private mockWsManager: MockWebSocketManager;
 
     constructor(config: CompilerExplorerRouterConfig = {}, mockWebSocketManager?: WebSocketManager) {
         // Create mock services
-        const mockWsManager = mockWebSocketManager || new MockWebSocketManager();
+        const mockWsManager = (mockWebSocketManager as MockWebSocketManager) || new MockWebSocketManager();
         const mockResultWaiter = new MockResultWaiter();
 
         // Pass mocks to parent constructor
@@ -18,6 +19,7 @@ export class TestableCompilerExplorerRouter extends CompilerExplorerRouter {
 
         this.mockRoutingService = new MockRoutingService();
         this.mockResultWaiter = mockResultWaiter;
+        this.mockWsManager = mockWsManager as MockWebSocketManager;
     }
 
     // Override the routing lookup method to use our mock
@@ -79,12 +81,18 @@ export class TestableCompilerExplorerRouter extends CompilerExplorerRouter {
     public getMockRoutingService(): MockRoutingService {
         return this.mockRoutingService;
     }
+
+    public getMockWebSocketManager(): MockWebSocketManager {
+        return this.mockWsManager;
+    }
 }
 
 // Mock WebSocket Manager for testing
 class MockWebSocketManager extends WebSocketManager {
     private mockConnected = false;
     private mockSubscriptions = new Set<string>();
+    private mockReconnectAttempts = 0;
+    private mockMaxReconnectAttempts = 10;
 
     constructor() {
         super({url: 'ws://localhost:8080/test'});
@@ -124,8 +132,31 @@ class MockWebSocketManager extends WebSocketManager {
         return new Set(this.mockSubscriptions);
     }
 
+    hasExhaustedReconnectAttempts(): boolean {
+        return this.mockReconnectAttempts >= this.mockMaxReconnectAttempts && !this.mockConnected;
+    }
+
+    getReconnectAttempts(): number {
+        return this.mockReconnectAttempts;
+    }
+
+    getMaxReconnectAttempts(): number {
+        return this.mockMaxReconnectAttempts;
+    }
+
     // Test helper to simulate receiving a message
     simulateMessage(message: any): void {
         this.emit('message', message);
+    }
+
+    // Test helper to simulate exhausted reconnect attempts
+    simulateExhaustedReconnects(): void {
+        this.mockConnected = false;
+        this.mockReconnectAttempts = this.mockMaxReconnectAttempts;
+    }
+
+    // Test helper to reset reconnect attempts
+    resetReconnectAttempts(): void {
+        this.mockReconnectAttempts = 0;
     }
 }
