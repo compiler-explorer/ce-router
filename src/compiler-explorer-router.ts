@@ -128,7 +128,6 @@ export class CompilerExplorerRouter {
     }
 
     private handleHealthCheck(_req: Request, res: Response): void {
-        logger.info('Received healthcheck request');
         const isConnected = this.wsManager.isConnected();
         const hasExhaustedRetries = this.wsManager.hasExhaustedReconnectAttempts();
         const reconnectAttempts = this.wsManager.getReconnectAttempts();
