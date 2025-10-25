@@ -1,8 +1,10 @@
+import {GetItemCommand} from '@aws-sdk/client-dynamodb';
 import {PutObjectCommand} from '@aws-sdk/client-s3';
 import {SendMessageCommand} from '@aws-sdk/client-sqs';
+import {GetParameterCommand} from '@aws-sdk/client-ssm';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {sendToSqs} from '../../src/services/routing.js';
-import {mockS3, mockSQS, resetAllMocks} from '../mocks/aws.js';
+import {clearRoutingCaches, lookupCompilerRouting, sendToSqs} from '../../src/services/routing.js';
+import {mockDynamoDB, mockS3, mockSQS, mockSSM, resetAllMocks} from '../mocks/aws.js';
 
 describe('Routing Service - S3 Overflow', () => {
     beforeEach(() => {
@@ -194,6 +196,86 @@ describe('Routing Service - S3 Overflow', () => {
             // S3 should NOT be called
             const s3Calls = mockS3.commandCalls(PutObjectCommand);
             expect(s3Calls).toHaveLength(0);
+        });
+    });
+
+    describe('clearRoutingCaches', () => {
+        beforeEach(() => {
+            resetAllMocks();
+            process.env.ENVIRONMENT_NAME = 'test';
+        });
+
+        it('should clear active color cache', async () => {
+            // Set up SSM mock to return a color
+            mockSSM.on(GetParameterCommand).resolves({
+                Parameter: {Value: 'blue'},
+            });
+
+            // Set up DynamoDB mock
+            mockDynamoDB.on(GetItemCommand).resolves({});
+
+            // First call to populate the cache
+            const routingInfo1 = await lookupCompilerRouting('gcc-12');
+            expect(routingInfo1).toBeDefined();
+
+            // Clear the cache
+            clearRoutingCaches();
+
+            // Mock SSM to return a different color
+            mockSSM.on(GetParameterCommand).resolves({
+                Parameter: {Value: 'green'},
+            });
+
+            // Second call should fetch fresh data (not cached)
+            const routingInfo2 = await lookupCompilerRouting('gcc-12');
+
+            // Verify SSM was called twice (once before clear, once after)
+            const ssmCalls = mockSSM.commandCalls(GetParameterCommand);
+            expect(ssmCalls.length).toBeGreaterThanOrEqual(2);
+        });
+
+        it('should clear routing cache', async () => {
+            // Set up SSM mock
+            mockSSM.on(GetParameterCommand).resolves({
+                Parameter: {Value: 'blue'},
+            });
+
+            // Set up DynamoDB mock to return routing info
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-special'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'custom-queue'},
+                },
+            });
+
+            // First lookup to populate routing cache
+            const result1 = await lookupCompilerRouting('gcc-special');
+            expect(result1.type).toBe('queue');
+
+            // Count how many DynamoDB calls were made initially
+            const initialDynamoDBCalls = mockDynamoDB.commandCalls(GetItemCommand).length;
+            expect(initialDynamoDBCalls).toBeGreaterThanOrEqual(1);
+
+            // Second lookup should use cache (fewer or no additional DynamoDB calls)
+            await lookupCompilerRouting('gcc-special');
+            const secondCallCount = mockDynamoDB.commandCalls(GetItemCommand).length;
+            // Should be same as before (cache hit) or at most +1 for fallback lookup
+            expect(secondCallCount).toBeLessThanOrEqual(initialDynamoDBCalls + 1);
+
+            // Clear the cache
+            clearRoutingCaches();
+
+            // Third lookup should hit DynamoDB again (fresh lookups)
+            await lookupCompilerRouting('gcc-special');
+            const afterClearCallCount = mockDynamoDB.commandCalls(GetItemCommand).length;
+            // Should have made at least one more call after clearing cache
+            expect(afterClearCallCount).toBeGreaterThan(secondCallCount);
+        });
+
+        it('should not throw errors when clearing empty caches', () => {
+            // Should not throw even if caches are empty
+            expect(() => clearRoutingCaches()).not.toThrow();
         });
     });
 });

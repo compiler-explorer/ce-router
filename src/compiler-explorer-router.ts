@@ -3,7 +3,7 @@ import type {Application, Request, Response} from 'express';
 import {logger} from './lib/logger.js';
 import {forwardToEnvironmentUrl} from './services/http-forwarder.js';
 import {ResultWaiter} from './services/result-waiter.js';
-import {RoutingInfo, lookupCompilerRouting, sendToSqs} from './services/routing.js';
+import {RoutingInfo, clearRoutingCaches, lookupCompilerRouting, sendToSqs} from './services/routing.js';
 import {WebSocketManager, WebSocketManagerOptions} from './services/websocket-manager.js';
 import {createErrorResponse, createSuccessResponse, generateGuid} from './utils/index.js';
 
@@ -93,6 +93,11 @@ export class CompilerExplorerRouter {
         // Health check endpoint
         this.app.get('/healthcheck', (req, res) => this.handleHealthCheck(req, res));
 
+        // Admin endpoint to clear routing caches
+        // This is called by the blue-green deployment script to ensure the router immediately
+        // picks up the new active color when traffic is switched (eliminates the 30s cache TTL delay)
+        this.app.post('/admin/clear-cache', (req, res) => this.handleClearCache(req, res));
+
         // Environment-prefixed routes (for beta, staging)
         this.app.post('/:env/api/compiler/:compilerid/compile', (req: CompilerRequest, res: Response) => {
             this.handleCompilationRequest(req, res, false);
@@ -156,6 +161,26 @@ export class CompilerExplorerRouter {
             reconnectAttempts: isConnected ? 0 : reconnectAttempts,
             maxReconnectAttempts,
         });
+    }
+
+    private handleClearCache(_req: Request, res: Response): void {
+        try {
+            clearRoutingCaches();
+            logger.info('Routing caches cleared via /admin/clear-cache endpoint (called by deployment script)');
+            res.json({
+                success: true,
+                message: 'Routing caches cleared successfully',
+                timestamp: new Date().toISOString(),
+            });
+        } catch (error) {
+            logger.error('Failed to clear routing caches via admin endpoint:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to clear routing caches',
+                message: (error as Error).message,
+                timestamp: new Date().toISOString(),
+            });
+        }
     }
 
     private async handleCompilationRequest(req: CompilerRequest, res: Response, isCmake: boolean): Promise<void> {

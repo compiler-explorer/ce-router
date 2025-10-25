@@ -249,6 +249,26 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
     }
 }
 
+/**
+ * Clears all routing and color caches.
+ * This is called via the /admin/clear-cache endpoint during blue-green deployments
+ * to ensure the router immediately picks up the new active color without waiting
+ * for the 30-second cache TTL to expire.
+ */
+export function clearRoutingCaches(): void {
+    // Clear active color cache
+    activeColorCache = {
+        color: null,
+        timestamp: 0,
+        TTL: activeColorCache.TTL,
+    };
+
+    // Clear routing cache
+    routingCache.clear();
+
+    logger.info('Routing caches cleared: active color cache and compiler routing cache');
+}
+
 export async function sendToSqs(
     guid: string,
     compilerId: string,

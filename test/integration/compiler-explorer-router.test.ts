@@ -45,6 +45,55 @@ describe('CompilerExplorerRouter', () => {
         });
     });
 
+    describe('Admin endpoints', () => {
+        describe('POST /admin/clear-cache', () => {
+            it('should successfully clear routing caches', async () => {
+                const response = await request(app).post('/admin/clear-cache');
+
+                expect(response.status).toBe(200);
+                expect(response.body).toMatchObject({
+                    success: true,
+                    message: 'Routing caches cleared successfully',
+                });
+                expect(response.body.timestamp).toBeDefined();
+            });
+
+            it('should include CORS headers in response', async () => {
+                const response = await request(app).post('/admin/clear-cache');
+
+                expect(response.headers['access-control-allow-origin']).toBe('*');
+                expect(response.headers['access-control-allow-methods']).toBe('POST, GET, OPTIONS');
+                expect(response.headers['access-control-allow-headers']).toBe('Content-Type, Accept, Authorization');
+            });
+
+            it('should return valid JSON response', async () => {
+                const response = await request(app).post('/admin/clear-cache');
+
+                expect(response.type).toBe('application/json');
+                expect(response.body).toBeDefined();
+                expect(typeof response.body.success).toBe('boolean');
+                expect(typeof response.body.message).toBe('string');
+            });
+
+            it('should be idempotent - multiple calls should succeed', async () => {
+                // First call
+                const response1 = await request(app).post('/admin/clear-cache');
+                expect(response1.status).toBe(200);
+                expect(response1.body.success).toBe(true);
+
+                // Second call immediately after
+                const response2 = await request(app).post('/admin/clear-cache');
+                expect(response2.status).toBe(200);
+                expect(response2.body.success).toBe(true);
+
+                // Third call
+                const response3 = await request(app).post('/admin/clear-cache');
+                expect(response3.status).toBe(200);
+                expect(response3.body.success).toBe(true);
+            });
+        });
+    });
+
     describe('CORS headers', () => {
         it('should include CORS headers in responses', async () => {
             const response = await request(app).get('/healthcheck');
