@@ -227,7 +227,7 @@ describe('Routing Service - S3 Overflow', () => {
             });
 
             // Second call should fetch fresh data (not cached)
-            const routingInfo2 = await lookupCompilerRouting('gcc-12');
+            await lookupCompilerRouting('gcc-12');
 
             // Verify SSM was called twice (once before clear, once after)
             const ssmCalls = mockSSM.commandCalls(GetParameterCommand);
