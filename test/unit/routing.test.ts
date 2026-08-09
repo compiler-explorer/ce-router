@@ -42,7 +42,7 @@ describe('Routing Service - S3 Overflow', () => {
             });
 
             // Call the function
-            await sendToSqs(mockGuid, mockCompilerId, smallBody, false, mockHeaders, mockQueryParams, mockQueueUrl);
+            await sendToSqs(mockGuid, mockCompilerId, smallBody, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
 
             // Verify SQS was called
             const sqsCalls = mockSQS.commandCalls(SendMessageCommand);
@@ -84,7 +84,7 @@ describe('Routing Service - S3 Overflow', () => {
             });
 
             // Call the function
-            await sendToSqs(mockGuid, mockCompilerId, largeBody, false, mockHeaders, mockQueryParams, mockQueueUrl);
+            await sendToSqs(mockGuid, mockCompilerId, largeBody, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
 
             // Verify S3 was called
             const s3Calls = mockS3.commandCalls(PutObjectCommand);
@@ -135,7 +135,7 @@ describe('Routing Service - S3 Overflow', () => {
             mockSQS.on(SendMessageCommand).resolves({MessageId: 'msg-789'});
 
             // Call the function
-            await sendToSqs('custom-guid', 'clang-15', body, false, mockHeaders, mockQueryParams, mockQueueUrl);
+            await sendToSqs('custom-guid', 'clang-15', body, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
 
             // Verify S3 was called with custom configuration
             const s3Calls = mockS3.commandCalls(PutObjectCommand);
@@ -184,7 +184,7 @@ describe('Routing Service - S3 Overflow', () => {
             mockSQS.on(SendMessageCommand).resolves({MessageId: 'exact-msg'});
 
             // Call the function
-            await sendToSqs(mockGuid, mockCompilerId, exactBody, false, mockHeaders, mockQueryParams, mockQueueUrl);
+            await sendToSqs(mockGuid, mockCompilerId, exactBody, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
 
             // Message at exactly the threshold should go directly to SQS
             const sqsCalls = mockSQS.commandCalls(SendMessageCommand);
@@ -196,6 +196,60 @@ describe('Routing Service - S3 Overflow', () => {
             // S3 should NOT be called
             const s3Calls = mockS3.commandCalls(PutObjectCommand);
             expect(s3Calls).toHaveLength(0);
+        });
+    });
+
+    describe('sendToSqs build system field', () => {
+        const mockGuid = 'test-guid-123';
+        const mockCompilerId = 'gcc-12';
+        const mockQueueUrl = 'https://sqs.us-east-1.amazonaws.com/123456789/test-queue.fifo';
+        const mockHeaders = {'content-type': 'application/json'};
+        const mockQueryParams = {};
+
+        async function sentMessageFor(buildSystem: string | undefined, body = '{"source": "int main(){}"}') {
+            mockSQS.on(SendMessageCommand).resolves({MessageId: 'msg-123'});
+            await sendToSqs(mockGuid, mockCompilerId, body, buildSystem, mockHeaders, mockQueryParams, mockQueueUrl);
+            const sqsCalls = mockSQS.commandCalls(SendMessageCommand);
+            return JSON.parse(sqsCalls[0].args[0].input.MessageBody as string);
+        }
+
+        it('should not name a build system for a plain compilation', async () => {
+            const sentMessage = await sentMessageFor(undefined);
+
+            expect(sentMessage.buildSystem).toBeUndefined();
+            expect(sentMessage.isCMake).toBe(false);
+        });
+
+        it('should send both spellings for cmake so older consumers keep working', async () => {
+            const sentMessage = await sentMessageFor('cmake');
+
+            expect(sentMessage.buildSystem).toBe('cmake');
+            expect(sentMessage.isCMake).toBe(true);
+        });
+
+        it('should name a non-cmake build system without claiming it is cmake', async () => {
+            const sentMessage = await sentMessageFor('cargo');
+
+            expect(sentMessage.buildSystem).toBe('cargo');
+            expect(sentMessage.isCMake).toBe(false);
+        });
+
+        it('should pass through a build system it does not know about', async () => {
+            // The backend owns which build systems exist, and rejects the ones it does not know; the router is not
+            // deployed in lockstep with it and must not second-guess.
+            const sentMessage = await sentMessageFor('bazel');
+
+            expect(sentMessage.buildSystem).toBe('bazel');
+        });
+
+        it('should let the route rather than the body decide what is built', async () => {
+            const sentMessage = await sentMessageFor(
+                'cargo',
+                JSON.stringify({source: 'fn main() {}', buildSystem: 'maven', isCMake: true}),
+            );
+
+            expect(sentMessage.buildSystem).toBe('cargo');
+            expect(sentMessage.isCMake).toBe(false);
         });
     });
 

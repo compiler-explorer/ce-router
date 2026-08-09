@@ -1,10 +1,10 @@
 import {describe, expect, it} from 'vitest';
 import {
+    buildSystemFromPath,
     createErrorResponse,
     createSuccessResponse,
     extractCompilerId,
     generateGuid,
-    isCmakeRequest,
     parseRequestBody,
 } from '../../src/utils/index.js';
 
@@ -56,20 +56,28 @@ describe('Utility functions', () => {
         });
     });
 
-    describe('isCmakeRequest', () => {
-        it('should return true for cmake paths', () => {
-            expect(isCmakeRequest('/api/compiler/g132/cmake')).toBe(true);
-            expect(isCmakeRequest('/prod/api/compiler/g132/cmake')).toBe(true);
+    describe('buildSystemFromPath', () => {
+        it('should name the build system a build path asks for', () => {
+            expect(buildSystemFromPath('/api/compiler/g132/build/cmake')).toBe('cmake');
+            expect(buildSystemFromPath('/api/compiler/g132/build/cargo')).toBe('cargo');
+            expect(buildSystemFromPath('/beta/api/compiler/g132/build/maven')).toBe('maven');
         });
 
-        it('should return false for compile paths', () => {
-            expect(isCmakeRequest('/api/compiler/g132/compile')).toBe(false);
-            expect(isCmakeRequest('/prod/api/compiler/g132/compile')).toBe(false);
+        it('should read the original cmake spelling as cmake', () => {
+            expect(buildSystemFromPath('/api/compiler/g132/cmake')).toBe('cmake');
+            expect(buildSystemFromPath('/prod/api/compiler/g132/cmake')).toBe('cmake');
         });
 
-        it('should return false for other paths', () => {
-            expect(isCmakeRequest('/api/compiler/g132')).toBe(false);
-            expect(isCmakeRequest('/invalid/path')).toBe(false);
+        it('should return null for compile paths', () => {
+            expect(buildSystemFromPath('/api/compiler/g132/compile')).toBeNull();
+            expect(buildSystemFromPath('/prod/api/compiler/g132/compile')).toBeNull();
+        });
+
+        it('should return null when no build system is named', () => {
+            expect(buildSystemFromPath('/api/compiler/g132/build')).toBeNull();
+            expect(buildSystemFromPath('/api/compiler/g132/build/')).toBeNull();
+            expect(buildSystemFromPath('/api/compiler/g132')).toBeNull();
+            expect(buildSystemFromPath('/invalid/path')).toBeNull();
         });
     });
 

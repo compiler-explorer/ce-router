@@ -1,7 +1,15 @@
 import {RoutingInfo} from '../../src/services/routing.js';
 
+export interface SentSqsRequest {
+    guid: string;
+    compilerid: string;
+    buildSystem: string | undefined;
+    queueUrl: string;
+}
+
 export class MockRoutingService {
     private routingTable = new Map<string, RoutingInfo>();
+    private sentRequests: SentSqsRequest[] = [];
 
     setRouting(compilerid: string, routingInfo: RoutingInfo): void {
         this.routingTable.set(compilerid, routingInfo);
@@ -25,13 +33,15 @@ export class MockRoutingService {
         guid: string,
         compilerid: string,
         _body: string,
-        _isCmake: boolean,
+        buildSystem: string | undefined,
         _headers: Record<string, string | string[]>,
         _queryStringParameters: Record<string, string>,
         queueUrl: string,
     ): Promise<void> {
         // Mock implementation - just log the parameters
-        console.log(`Mock SQS send: ${guid}, ${compilerid}, ${queueUrl}`);
+        console.log(`Mock SQS send: ${guid}, ${compilerid}, ${buildSystem ?? 'compile'}, ${queueUrl}`);
+
+        this.sentRequests.push({guid, compilerid, buildSystem, queueUrl});
 
         // Simulate successful send
         if (queueUrl.includes('fail')) {
@@ -39,7 +49,12 @@ export class MockRoutingService {
         }
     }
 
+    getSentRequests(): SentSqsRequest[] {
+        return this.sentRequests;
+    }
+
     reset(): void {
         this.routingTable.clear();
+        this.sentRequests = [];
     }
 }

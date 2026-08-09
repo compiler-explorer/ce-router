@@ -1,5 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {buildForwardUrl, filterResponseHeaders, prepareForwardHeaders} from '../../src/services/http-forwarder.js';
+import {
+    buildForwardUrl,
+    endpointFor,
+    filterResponseHeaders,
+    prepareForwardHeaders,
+} from '../../src/services/http-forwarder.js';
 
 describe('HTTP Forwarder', () => {
     describe('buildForwardUrl', () => {
@@ -25,6 +30,61 @@ describe('HTTP Forwarder', () => {
             const targetUrl = 'http://localhost:3000/api/compiler/gcc/compile';
             const result = buildForwardUrl(targetUrl);
             expect(result).toBe('http://localhost:3000/api/compiler/gcc/compile');
+        });
+
+        it('should replace the stored endpoint with the one the request asked for', () => {
+            const targetUrl = 'https://godbolt.org/gpu/api/compiler/nvcc130/compile';
+
+            expect(buildForwardUrl(targetUrl, 'cmake')).toBe('https://godbolt.org/gpu/api/compiler/nvcc130/cmake');
+            expect(buildForwardUrl(targetUrl, 'cargo')).toBe(
+                'https://godbolt.org/gpu/api/compiler/nvcc130/build/cargo',
+            );
+        });
+
+        it('should replace a stored cmake endpoint too', () => {
+            const targetUrl = 'https://godbolt.org/gpu/api/compiler/nvcc130/cmake';
+
+            expect(buildForwardUrl(targetUrl)).toBe('https://godbolt.org/gpu/api/compiler/nvcc130/compile');
+            expect(buildForwardUrl(targetUrl, 'maven')).toBe(
+                'https://godbolt.org/gpu/api/compiler/nvcc130/build/maven',
+            );
+        });
+
+        it('should replace a stored build endpoint', () => {
+            const targetUrl = 'https://godbolt.org/gpu/api/compiler/nvcc130/build/cargo';
+
+            expect(buildForwardUrl(targetUrl)).toBe('https://godbolt.org/gpu/api/compiler/nvcc130/compile');
+            expect(buildForwardUrl(targetUrl, 'cmake')).toBe('https://godbolt.org/gpu/api/compiler/nvcc130/cmake');
+        });
+
+        it('should send cmake to its own endpoint rather than the generic one', () => {
+            // The environment being forwarded to may predate /build/{build_system}, but has always had /cmake
+            expect(buildForwardUrl('https://godbolt.org/gpu/api/compiler/nvcc130/compile', 'cmake')).toBe(
+                'https://godbolt.org/gpu/api/compiler/nvcc130/cmake',
+            );
+        });
+
+        it('should leave a URL not ending in a known endpoint alone', () => {
+            expect(buildForwardUrl('https://example.com/', 'cargo')).toBe('https://example.com');
+            expect(buildForwardUrl('https://example.com/some/other/path', 'cargo')).toBe(
+                'https://example.com/some/other/path',
+            );
+        });
+    });
+
+    describe('endpointFor', () => {
+        it('should name the plain compile endpoint when no build system is asked for', () => {
+            expect(endpointFor(undefined)).toBe('compile');
+        });
+
+        it('should keep the original cmake spelling', () => {
+            expect(endpointFor('cmake')).toBe('cmake');
+        });
+
+        it('should send every other build system to the generic endpoint', () => {
+            expect(endpointFor('cargo')).toBe('build/cargo');
+            expect(endpointFor('maven')).toBe('build/maven');
+            expect(endpointFor('make')).toBe('build/make');
         });
     });
 

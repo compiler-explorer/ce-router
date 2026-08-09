@@ -24,9 +24,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Key Endpoints
 - `POST /api/compiler/:compilerid/compile` - Handles compilation requests for specific compilers
-- `POST /api/compiler/:compilerid/cmake` - Handles CMake build requests
+- `POST /api/compiler/:compilerid/build/:buildSystem` - Handles project build requests (cmake, cargo, maven, make)
+- `POST /api/compiler/:compilerid/cmake` - The original CMake-only spelling of the above; documented API, so it stays
 - `POST /:env/api/compiler/:compilerid/compile` - Environment-prefixed compilation requests (beta, staging)
+- `POST /:env/api/compiler/:compilerid/build/:buildSystem` - Environment-prefixed project build requests
 - `POST /:env/api/compiler/:compilerid/cmake` - Environment-prefixed CMake requests
+
+Build system ids are passed through to the backend unvalidated: which build systems exist is the backend's business,
+and the router is not deployed in lockstep with it. A queued request names its build system in the `buildSystem` field,
+and also sets the older `isCMake` boolean so that workers predating `buildSystem` keep working.
 - `GET /healthcheck` - Health status including WebSocket connection state
 
 ### WebSocket Integration

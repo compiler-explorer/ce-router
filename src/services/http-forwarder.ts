@@ -1,5 +1,6 @@
 import axios from 'axios';
 import {logger} from '../lib/logger.js';
+import {CMAKE_BUILD_SYSTEM} from '../utils/index.js';
 
 export interface ForwardResponse {
     statusCode: number;
@@ -7,8 +8,51 @@ export interface ForwardResponse {
     body: string;
 }
 
-export function buildForwardUrl(targetUrl: string): string {
-    return targetUrl.replace(/\/$/, '');
+/**
+ * The endpoint a request wants, relative to a compiler's API path. CMake keeps its own permanent spelling rather than
+ * going to /build/cmake, because the environment being forwarded to is not deployed in lockstep with this one and may
+ * predate the generic route -- the same reason the backend proxies CMake to sub-servers the old way.
+ */
+export function endpointFor(buildSystem: string | undefined): string {
+    if (!buildSystem) return 'compile';
+    if (buildSystem === CMAKE_BUILD_SYSTEM) return CMAKE_BUILD_SYSTEM;
+    return `build/${buildSystem}`;
+}
+
+/**
+ * The URL to forward to. The routing table stores one URL per compiler with an endpoint already on the end of it, so
+ * the endpoint the request actually asked for has to replace it -- otherwise a project build would arrive at the
+ * target as a plain compilation of the project's manifest.
+ *
+ * A stored URL not ending in an endpoint this recognises is forwarded unchanged, since guessing where to graft the
+ * endpoint on would be worse than leaving a working route alone.
+ */
+export function buildForwardUrl(targetUrl: string, buildSystem?: string): string {
+    const fullUrl = targetUrl.replace(/\/$/, '');
+    const endpoint = endpointFor(buildSystem);
+
+    const withoutEndpoint = stripEndpoint(fullUrl);
+    if (withoutEndpoint === null) {
+        if (buildSystem) {
+            logger.warn(
+                `Target URL ${fullUrl} does not end in a known endpoint; forwarding ${endpoint} request unchanged`,
+            );
+        }
+        return fullUrl;
+    }
+
+    return `${withoutEndpoint}/${endpoint}`;
+}
+
+/** The target URL with its trailing endpoint removed, or null if it does not end in one we put there. */
+function stripEndpoint(fullUrl: string): string | null {
+    const parts = fullUrl.split('/');
+    const last = parts[parts.length - 1];
+
+    if (last === 'compile' || last === CMAKE_BUILD_SYSTEM) return parts.slice(0, -1).join('/');
+    // A URL already pointing at the generic endpoint, e.g. .../api/compiler/foo/build/cargo
+    if (parts.length >= 2 && parts[parts.length - 2] === 'build') return parts.slice(0, -2).join('/');
+    return null;
 }
 
 export function prepareForwardHeaders(headers: Record<string, string | string[]>): Record<string, string> {
@@ -51,18 +95,18 @@ export function filterResponseHeaders(headers: Record<string, string>): Record<s
     return filteredHeaders;
 }
 
+/** Forwards a request to a URL-routed compiler, at whichever endpoint of it the request asked for. */
 export async function forwardToEnvironmentUrl(
     compilerId: string,
     targetUrl: string,
     body: string,
-    isCmake: boolean,
+    buildSystem: string | undefined,
     headers: Record<string, string | string[]>,
 ): Promise<ForwardResponse> {
     try {
-        const fullUrl = buildForwardUrl(targetUrl);
-        const endpoint = isCmake ? 'cmake' : 'compile';
+        const fullUrl = buildForwardUrl(targetUrl, buildSystem);
 
-        logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
+        logger.info(`Forwarding ${buildSystem ?? 'compile'} request for ${compilerId} to: ${fullUrl}`);
 
         const forwardHeaders = prepareForwardHeaders(headers);
         logger.debug('Forward headers:', forwardHeaders);

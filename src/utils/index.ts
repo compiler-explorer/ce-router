@@ -27,8 +27,20 @@ export function extractCompilerId(path: string): string | null {
     return null;
 }
 
-export function isCmakeRequest(path: string): boolean {
-    return path.endsWith('/cmake');
+/** The one build system that predates /build/{build_system} and has an endpoint of its own. */
+export const CMAKE_BUILD_SYSTEM = 'cmake';
+
+/**
+ * The build system a request path asks for, or null for a plain single-file compilation. Both the generic
+ * /build/{build_system} route and the original CMake-only /cmake spelling are understood.
+ */
+export function buildSystemFromPath(path: string): string | null {
+    const pathParts = path.replaceAll(TRIM_SLASHES_REGEX, '').split('/');
+
+    const last = pathParts[pathParts.length - 1];
+    if (last === CMAKE_BUILD_SYSTEM) return CMAKE_BUILD_SYSTEM;
+    if (pathParts.length >= 2 && pathParts[pathParts.length - 2] === 'build') return last;
+    return null;
 }
 
 export function parseRequestBody(body: string, contentType?: string): Record<string, any> {
