@@ -5,7 +5,7 @@ import {forwardToEnvironmentUrl} from './services/http-forwarder.js';
 import {ResultWaiter} from './services/result-waiter.js';
 import {RoutingInfo, clearRoutingCaches, lookupCompilerRouting, sendToSqs} from './services/routing.js';
 import {PingMode, WebSocketManager, WebSocketManagerOptions} from './services/websocket-manager.js';
-import {createErrorResponse, createSuccessResponse, generateGuid} from './utils/index.js';
+import {CMAKE_BUILD_SYSTEM, createErrorResponse, createSuccessResponse, generateGuid} from './utils/index.js';
 
 export interface CompilerExplorerRouterConfig {
     timeoutSeconds?: number;
@@ -18,6 +18,7 @@ export interface CompilerRequest extends Request {
     params: {
         compilerid: string;
         env?: string;
+        buildSystem?: string;
     };
 }
 
@@ -107,20 +108,29 @@ export class CompilerExplorerRouter {
 
         // Environment-prefixed routes (for beta, staging)
         this.app.post('/:env/api/compiler/:compilerid/compile', (req: CompilerRequest, res: Response) => {
-            this.handleCompilationRequest(req, res, false);
+            this.handleCompilationRequest(req, res);
+        });
+
+        this.app.post('/:env/api/compiler/:compilerid/build/:buildSystem', (req: CompilerRequest, res: Response) => {
+            this.handleCompilationRequest(req, res, req.params.buildSystem);
         });
 
         this.app.post('/:env/api/compiler/:compilerid/cmake', (req: CompilerRequest, res: Response) => {
-            this.handleCompilationRequest(req, res, true);
+            this.handleCompilationRequest(req, res, CMAKE_BUILD_SYSTEM);
         });
 
         // Production routes (no environment prefix)
         this.app.post('/api/compiler/:compilerid/compile', (req: CompilerRequest, res: Response) => {
-            this.handleCompilationRequest(req, res, false);
+            this.handleCompilationRequest(req, res);
         });
 
+        this.app.post('/api/compiler/:compilerid/build/:buildSystem', (req: CompilerRequest, res: Response) => {
+            this.handleCompilationRequest(req, res, req.params.buildSystem);
+        });
+
+        // The original, CMake-only spelling of the above. Documented API, so it stays.
         this.app.post('/api/compiler/:compilerid/cmake', (req: CompilerRequest, res: Response) => {
-            this.handleCompilationRequest(req, res, true);
+            this.handleCompilationRequest(req, res, CMAKE_BUILD_SYSTEM);
         });
 
         // Add error handler for Express
@@ -193,7 +203,12 @@ export class CompilerExplorerRouter {
         }
     }
 
-    private async handleCompilationRequest(req: CompilerRequest, res: Response, isCmake: boolean): Promise<void> {
+    /**
+     * Handles a compilation request. `buildSystem` is the build system the project is to be built with, or undefined
+     * for a plain single-file compilation. The id is passed through unvalidated: which build systems exist is the
+     * backend's business, and the router is not deployed in lockstep with it.
+     */
+    private async handleCompilationRequest(req: CompilerRequest, res: Response, buildSystem?: string): Promise<void> {
         try {
             // Generate unique GUID for this request immediately
             const guid = generateGuid();
@@ -202,8 +217,7 @@ export class CompilerExplorerRouter {
             const headers = req.headers;
             const queryStringParameters = req.query as Record<string, string>;
 
-            const endpoint = isCmake ? 'cmake' : 'compile';
-            logger.info(`Received ${endpoint} request for compiler: ${compilerid}`);
+            logger.info(`Received ${buildSystem ?? 'compile'} request for compiler: ${compilerid}`);
             logger.debug('Content-Type:', headers['content-type']);
             logger.info(`Request GUID: ${guid}`);
 
@@ -226,14 +240,14 @@ export class CompilerExplorerRouter {
             const routingInfo = await this.getRoutingInfo(compilerid);
 
             if (routingInfo.type === 'url') {
-                await this.handleUrlRouting(res, guid, compilerid, body, isCmake, headers, routingInfo);
+                await this.handleUrlRouting(res, guid, compilerid, body, buildSystem, headers, routingInfo);
             } else {
                 await this.handleQueueRouting(
                     res,
                     guid,
                     compilerid,
                     body,
-                    isCmake,
+                    buildSystem,
                     headers,
                     queryStringParameters,
                     routingInfo,
@@ -254,12 +268,12 @@ export class CompilerExplorerRouter {
         guid: string,
         compilerid: string,
         body: string,
-        isCmake: boolean,
+        buildSystem: string | undefined,
         headers: Record<string, string | string[]>,
         queryStringParameters: Record<string, string>,
         queueUrl: string,
     ): Promise<void> {
-        return sendToSqs(guid, compilerid, body, isCmake, headers, queryStringParameters, queueUrl);
+        return sendToSqs(guid, compilerid, body, buildSystem, headers, queryStringParameters, queueUrl);
     }
 
     private async handleUrlRouting(
@@ -267,7 +281,7 @@ export class CompilerExplorerRouter {
         guid: string,
         compilerid: string,
         body: string,
-        isCmake: boolean,
+        buildSystem: string | undefined,
         headers: any,
         routingInfo: RoutingInfo,
     ): Promise<void> {
@@ -280,7 +294,7 @@ export class CompilerExplorerRouter {
                 compilerid,
                 routingInfo.target,
                 body,
-                isCmake,
+                buildSystem,
                 headers as Record<string, string | string[]>,
             );
 
@@ -338,7 +352,7 @@ export class CompilerExplorerRouter {
         guid: string,
         compilerid: string,
         body: string,
-        isCmake: boolean,
+        buildSystem: string | undefined,
         headers: any,
         queryStringParameters: Record<string, string>,
         routingInfo: RoutingInfo,
@@ -353,7 +367,7 @@ export class CompilerExplorerRouter {
                 guid,
                 compilerid,
                 body,
-                isCmake,
+                buildSystem,
                 headers as Record<string, string | string[]>,
                 queryStringParameters,
                 queueUrl,

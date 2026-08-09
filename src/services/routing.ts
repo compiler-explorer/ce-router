@@ -3,7 +3,7 @@ import {PutObjectCommand} from '@aws-sdk/client-s3';
 import {SendMessageCommand} from '@aws-sdk/client-sqs';
 import {GetParameterCommand} from '@aws-sdk/client-ssm';
 import {logger} from '../lib/logger.js';
-import {parseRequestBody} from '../utils/index.js';
+import {CMAKE_BUILD_SYSTEM, parseRequestBody} from '../utils/index.js';
 import {dynamoDBClient, s3Client, sqsClient, ssmClient} from './aws-clients.js';
 
 // Cache for active color (with TTL)
@@ -273,7 +273,7 @@ export async function sendToSqs(
     guid: string,
     compilerId: string,
     body: string,
-    isCmake: boolean,
+    buildSystem: string | undefined,
     headers: Record<string, string | string[]>,
     queryStringParameters: Record<string, string>,
     queueUrl: string,
@@ -294,11 +294,20 @@ export async function sendToSqs(
     const messageBody: any = {
         guid,
         compilerId,
-        isCMake: isCmake,
         headers,
         queryStringParameters,
         ...requestData, // Merge all fields from the original request first
     };
+
+    // Set after the merge: the route the request came in on decides what to build, not the body. `isCMake` is the
+    // original spelling of `buildSystem` and is still sent so that workers predating the generic field keep working.
+    if (buildSystem) {
+        messageBody.buildSystem = buildSystem;
+        messageBody.isCMake = buildSystem === CMAKE_BUILD_SYSTEM;
+    } else {
+        messageBody.isCMake = false;
+        delete messageBody.buildSystem;
+    }
 
     // Add defaults for fields that are required by the consumer but might be missing
     messageBody.source = messageBody.source || '';

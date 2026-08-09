@@ -51,18 +51,22 @@ export function filterResponseHeaders(headers: Record<string, string>): Record<s
     return filteredHeaders;
 }
 
+/**
+ * Forwards a request to a URL-routed compiler. The target URL is stored whole in the routing table, endpoint included,
+ * so `buildSystem` only names the request in the logs -- a URL-routed compiler answers whatever its stored URL points
+ * at, which today is always /compile.
+ */
 export async function forwardToEnvironmentUrl(
     compilerId: string,
     targetUrl: string,
     body: string,
-    isCmake: boolean,
+    buildSystem: string | undefined,
     headers: Record<string, string | string[]>,
 ): Promise<ForwardResponse> {
     try {
         const fullUrl = buildForwardUrl(targetUrl);
-        const endpoint = isCmake ? 'cmake' : 'compile';
 
-        logger.info(`Forwarding ${endpoint} request for ${compilerId} to: ${fullUrl}`);
+        logger.info(`Forwarding ${buildSystem ?? 'compile'} request for ${compilerId} to: ${fullUrl}`);
 
         const forwardHeaders = prepareForwardHeaders(headers);
         logger.debug('Forward headers:', forwardHeaders);

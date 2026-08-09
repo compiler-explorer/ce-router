@@ -166,6 +166,52 @@ describe('CompilerExplorerRouter', () => {
                     code: 0,
                 });
 
+                // The original CMake-only endpoint asks for the same build system as /build/cmake does
+                expect(router.getMockRoutingService().getSentRequests()).toMatchObject([{buildSystem: 'cmake'}]);
+
+                router.getMockResultWaiter().waitForResult = originalWaitForResult;
+            });
+
+            it('should handle build request successfully', async () => {
+                const compilationResult = {
+                    stdout: [{text: 'Cargo successful'}],
+                    code: 0,
+                };
+
+                const originalWaitForResult = router.getMockResultWaiter().waitForResult;
+                router.getMockResultWaiter().waitForResult = async () => compilationResult;
+
+                const response = await request(app)
+                    .post('/api/compiler/r1900/build/cargo')
+                    .send({
+                        source: '[package]\nname = "example"',
+                        options: [],
+                    })
+                    .expect(200);
+
+                expect(response.body).toMatchObject({
+                    stdout: [{text: 'Cargo successful'}],
+                    code: 0,
+                });
+
+                expect(router.getMockRoutingService().getSentRequests()).toMatchObject([
+                    {compilerid: 'r1900', buildSystem: 'cargo'},
+                ]);
+
+                router.getMockResultWaiter().waitForResult = originalWaitForResult;
+            });
+
+            it('should not name a build system for a plain compile request', async () => {
+                const originalWaitForResult = router.getMockResultWaiter().waitForResult;
+                router.getMockResultWaiter().waitForResult = async () => ({code: 0});
+
+                await request(app)
+                    .post('/api/compiler/g132/compile')
+                    .send({source: 'int main() { return 0; }'})
+                    .expect(200);
+
+                expect(router.getMockRoutingService().getSentRequests()).toMatchObject([{buildSystem: undefined}]);
+
                 router.getMockResultWaiter().waitForResult = originalWaitForResult;
             });
 
@@ -197,6 +243,24 @@ describe('CompilerExplorerRouter', () => {
                 expect(response.body).toMatchObject({
                     error: expect.stringContaining('Failed to setup result subscription'),
                 });
+            });
+        });
+
+        describe('Environment-prefixed routes', () => {
+            it.each([
+                ['/beta/api/compiler/g132/compile', undefined],
+                ['/beta/api/compiler/g132/cmake', 'cmake'],
+                ['/beta/api/compiler/g132/build/cmake', 'cmake'],
+                ['/staging/api/compiler/r1900/build/cargo', 'cargo'],
+            ])('should route %s asking for %s', async (path, buildSystem) => {
+                const originalWaitForResult = router.getMockResultWaiter().waitForResult;
+                router.getMockResultWaiter().waitForResult = async () => ({code: 0});
+
+                await request(app).post(path).send({source: 'int main() { return 0; }'}).expect(200);
+
+                expect(router.getMockRoutingService().getSentRequests()).toMatchObject([{buildSystem}]);
+
+                router.getMockResultWaiter().waitForResult = originalWaitForResult;
             });
         });
 
