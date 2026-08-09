@@ -2,11 +2,27 @@ import {EventEmitter} from 'node:events';
 import WebSocket from 'ws';
 import {logger} from '../lib/logger.js';
 
+/**
+ * How the heartbeat proves the connection is alive:
+ * - 'application': send a "ping" text message; the events server replies with a
+ *   "pong" text message. This round-trips through the Lambda backend, so it is
+ *   true end-to-end liveness. (default)
+ * - 'control': send a WebSocket protocol ping frame and wait for a protocol pong.
+ *   Behind API Gateway these are answered at the AWS edge, so this only proves
+ *   the front door is reachable, not that the Lambda backend is alive.
+ */
+export enum PingMode {
+    Application = 'application',
+    Control = 'control',
+}
+
 export interface WebSocketManagerOptions {
     url: string;
     reconnectInterval?: number;
     maxReconnectAttempts?: number;
     pingInterval?: number;
+    pongTimeout?: number;
+    pingMode?: PingMode;
 }
 
 export interface PendingSubscription {
@@ -20,8 +36,13 @@ export class WebSocketManager extends EventEmitter {
     private reconnectInterval: number;
     private maxReconnectAttempts: number;
     private pingInterval: number;
+    private pongTimeout: number;
+    private pingMode: PingMode;
     private reconnectAttempts = 0;
     private pingTimer?: NodeJS.Timeout;
+    private pongTimer?: NodeJS.Timeout;
+    private lastActivityTime = 0;
+    private lastPongTime = 0;
     private isClosing = false;
     private subscriptions = new Set<string>();
     private pendingSubscriptions = new Map<string, number>();
@@ -32,6 +53,8 @@ export class WebSocketManager extends EventEmitter {
         this.reconnectInterval = options.reconnectInterval || 5000;
         this.maxReconnectAttempts = options.maxReconnectAttempts || 10;
         this.pingInterval = options.pingInterval || 30000;
+        this.pongTimeout = options.pongTimeout || 10000;
+        this.pingMode = options.pingMode || PingMode.Application;
     }
 
     connect(): Promise<void> {
@@ -45,6 +68,7 @@ export class WebSocketManager extends EventEmitter {
 
             this.ws.on('open', () => {
                 this.reconnectAttempts = 0;
+                this.recordActivity();
                 this.startPing();
                 this.emit('connected');
                 this.resubscribePendingSubscriptions();
@@ -54,6 +78,23 @@ export class WebSocketManager extends EventEmitter {
 
             this.ws.on('message', (data: WebSocket.Data) => {
                 const messageString = data.toString();
+
+                // The events server implements keepalive at the application level:
+                // it replies to a "ping" text frame with a "pong" text frame. This
+                // is required because API Gateway WebSocket APIs do not surface
+                // protocol-level ping/pong control frames to the Lambda backend, so
+                // ws.ping()/the 'pong' event would never get a response. Treat the
+                // "pong" text message as our liveness signal.
+                if (messageString.trim() === 'pong') {
+                    this.lastPongTime = Date.now();
+                    this.recordActivity();
+                    this.emit('pong');
+                    return;
+                }
+
+                // Any inbound frame proves the connection is alive, so cancel any
+                // pending pong-timeout even if we never see the pong itself.
+                this.recordActivity();
                 try {
                     const message = JSON.parse(messageString);
                     this.emit('message', message);
@@ -96,7 +137,15 @@ export class WebSocketManager extends EventEmitter {
             });
 
             this.ws.on('pong', () => {
-                this.emit('pong');
+                // Only trusted as a liveness signal in 'control' mode. Behind API
+                // Gateway a protocol pong is answered at the AWS edge, so in the
+                // default 'application' mode we ignore it and rely on the "pong"
+                // text message instead (handled above).
+                if (this.pingMode === PingMode.Control) {
+                    this.lastPongTime = Date.now();
+                    this.recordActivity();
+                    this.emit('pong');
+                }
             });
         });
     }
@@ -144,13 +193,69 @@ export class WebSocketManager extends EventEmitter {
         }
     }
 
+    private recordActivity(): void {
+        this.lastActivityTime = Date.now();
+        // Inbound traffic (pong or any message) means the peer is alive, so the
+        // connection is not dead: cancel the pending termination.
+        this.clearPongTimer();
+    }
+
     private startPing(): void {
         this.stopPing();
-        this.pingTimer = setInterval(() => {
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.ping();
+        this.pingTimer = setInterval(() => this.sendHeartbeat(), this.pingInterval);
+    }
+
+    private sendHeartbeat(): void {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        // A pong timer is still pending from a previous heartbeat with no response
+        // in between; don't stack another. The pending timer will terminate us.
+        if (this.pongTimer) {
+            return;
+        }
+
+        if (this.pingMode === PingMode.Control) {
+            // Protocol-level ping. The 'pong' control-frame handler records the
+            // response. Note this only proves reachability to the API Gateway
+            // edge, not to the Lambda backend (see PingMode docs).
+            this.ws.ping();
+        } else {
+            // Application-level ping: the events server replies with a "pong"
+            // text message (see the message handler), which round-trips through
+            // the Lambda backend for true end-to-end liveness.
+            this.send('ping').catch(error => {
+                logger.warn('Failed to send heartbeat ping:', error);
+            });
+        }
+
+        // If neither a pong nor any other inbound frame arrives before the
+        // deadline, the socket is silently dead (half-open TCP, dropped network,
+        // LB reaping an idle connection). terminate() forces an immediate close
+        // which triggers the normal reconnect path, instead of waiting minutes
+        // for the OS TCP stack to notice.
+        this.pongTimer = setTimeout(() => {
+            this.pongTimer = undefined;
+            const staleFor = this.lastActivityTime ? Date.now() - this.lastActivityTime : -1;
+            logger.warn(
+                `WebSocket heartbeat timed out: no pong/activity within ${this.pongTimeout}ms ` +
+                    `(last activity ${staleFor}ms ago). Terminating dead connection.`,
+            );
+            this.emit('heartbeat-timeout');
+            if (this.ws) {
+                // terminate() (vs close()) skips the closing handshake, which a dead
+                // peer would never answer; the 'close' handler drives reconnection.
+                this.ws.terminate();
             }
-        }, this.pingInterval);
+        }, this.pongTimeout);
+    }
+
+    private clearPongTimer(): void {
+        if (this.pongTimer) {
+            clearTimeout(this.pongTimer);
+            this.pongTimer = undefined;
+        }
     }
 
     private stopPing(): void {
@@ -158,6 +263,7 @@ export class WebSocketManager extends EventEmitter {
             clearInterval(this.pingTimer);
             this.pingTimer = undefined;
         }
+        this.clearPongTimer();
     }
 
     isConnected(): boolean {
@@ -178,6 +284,14 @@ export class WebSocketManager extends EventEmitter {
 
     getSubscriptions(): Set<string> {
         return new Set(this.subscriptions);
+    }
+
+    getLastActivityTime(): number {
+        return this.lastActivityTime;
+    }
+
+    getLastPongTime(): number {
+        return this.lastPongTime;
     }
 
     sendAck(guid: string): Promise<void> {
