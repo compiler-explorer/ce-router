@@ -6,7 +6,7 @@ vi.mock('ws', () => ({
     WebSocket: MockWebSocket,
 }));
 
-const {WebSocketManager} = await import('../../src/services/websocket-manager.js');
+const {WebSocketManager, PingMode} = await import('../../src/services/websocket-manager.js');
 
 describe('WebSocketManager', () => {
     let manager: InstanceType<typeof WebSocketManager>;
@@ -217,6 +217,181 @@ describe('WebSocketManager', () => {
             // Should have tried to reconnect but eventually stopped
             expect(disconnectedSpy).toHaveBeenCalled();
             expect((manager as any).reconnectAttempts).toBeGreaterThanOrEqual(0);
+        });
+    });
+
+    describe('heartbeat / dead-connection detection', () => {
+        let hbManager: InstanceType<typeof WebSocketManager>;
+
+        beforeEach(() => {
+            hbManager = new WebSocketManager({
+                url: testUrl,
+                reconnectInterval: 100,
+                maxReconnectAttempts: 3,
+                pingInterval: 50,
+                pongTimeout: 30,
+            });
+        });
+
+        afterEach(() => {
+            hbManager.close();
+        });
+
+        it('should send "ping" text messages on the configured interval', async () => {
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+
+            await vi.waitFor(
+                () => {
+                    expect(ws.send).toHaveBeenCalledWith('ping', expect.any(Function));
+                },
+                {timeout: 300},
+            );
+        });
+
+        it('should terminate the connection when no pong or activity is received', async () => {
+            const timeoutSpy = vi.fn();
+            hbManager.on('heartbeat-timeout', timeoutSpy);
+
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+            const terminateSpy = vi.spyOn(ws, 'terminate');
+
+            await vi.waitFor(
+                () => {
+                    expect(timeoutSpy).toHaveBeenCalled();
+                    expect(terminateSpy).toHaveBeenCalled();
+                },
+                {timeout: 500},
+            );
+        });
+
+        it('should NOT terminate while "pong" text replies keep arriving', async () => {
+            const timeoutSpy = vi.fn();
+            const pongSpy = vi.fn();
+            hbManager.on('heartbeat-timeout', timeoutSpy);
+            hbManager.on('pong', pongSpy);
+
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+
+            // Keep the connection alive with steady "pong" text replies (as the
+            // events server sends) for a few ping cycles.
+            const pongInterval = setInterval(() => ws.simulateMessage('pong'), 20);
+            await new Promise(resolve => setTimeout(resolve, 250));
+            clearInterval(pongInterval);
+
+            expect(timeoutSpy).not.toHaveBeenCalled();
+            expect(pongSpy).toHaveBeenCalled();
+            expect(hbManager.getLastPongTime()).toBeGreaterThan(0);
+        });
+
+        it('should not emit a "pong" text reply as a regular message', async () => {
+            const messageSpy = vi.fn();
+            hbManager.on('message', messageSpy);
+
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+            ws.simulateMessage('pong');
+
+            expect(messageSpy).not.toHaveBeenCalled();
+        });
+
+        it('should treat inbound messages as liveness activity', async () => {
+            const timeoutSpy = vi.fn();
+            hbManager.on('heartbeat-timeout', timeoutSpy);
+
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+
+            // No pongs, but a steady stream of application messages should keep it alive.
+            const msgInterval = setInterval(() => ws.simulateMessage('{"keepalive":true}'), 20);
+            await new Promise(resolve => setTimeout(resolve, 250));
+            clearInterval(msgInterval);
+
+            expect(timeoutSpy).not.toHaveBeenCalled();
+        });
+
+        it('should reconnect after a heartbeat timeout terminates a dead connection', async () => {
+            const connectedSpy = vi.fn();
+            hbManager.on('connected', connectedSpy);
+
+            await hbManager.connect();
+            expect(connectedSpy).toHaveBeenCalledTimes(1);
+
+            // Let the heartbeat detect the dead connection and reconnect.
+            await vi.waitFor(
+                () => {
+                    expect(connectedSpy).toHaveBeenCalledTimes(2);
+                },
+                {timeout: 500},
+            );
+        });
+
+        it('should send protocol ping frames in control mode', async () => {
+            const controlManager = new WebSocketManager({
+                url: testUrl,
+                reconnectInterval: 100,
+                maxReconnectAttempts: 3,
+                pingInterval: 50,
+                pongTimeout: 30,
+                pingMode: PingMode.Control,
+            });
+
+            try {
+                await controlManager.connect();
+                const ws = (controlManager as any).ws as MockWebSocket;
+
+                await vi.waitFor(
+                    () => {
+                        expect(ws.ping).toHaveBeenCalled();
+                    },
+                    {timeout: 300},
+                );
+                // Should NOT send text "ping" in control mode.
+                expect(ws.send).not.toHaveBeenCalledWith('ping', expect.any(Function));
+            } finally {
+                controlManager.close();
+            }
+        });
+
+        it('should stay alive on protocol pongs in control mode', async () => {
+            const controlManager = new WebSocketManager({
+                url: testUrl,
+                reconnectInterval: 100,
+                maxReconnectAttempts: 3,
+                pingInterval: 50,
+                pongTimeout: 30,
+                pingMode: PingMode.Control,
+            });
+
+            try {
+                const timeoutSpy = vi.fn();
+                controlManager.on('heartbeat-timeout', timeoutSpy);
+
+                await controlManager.connect();
+                const ws = (controlManager as any).ws as MockWebSocket;
+
+                const pongInterval = setInterval(() => ws.emit('pong'), 20);
+                await new Promise(resolve => setTimeout(resolve, 250));
+                clearInterval(pongInterval);
+
+                expect(timeoutSpy).not.toHaveBeenCalled();
+                expect(controlManager.getLastPongTime()).toBeGreaterThan(0);
+            } finally {
+                controlManager.close();
+            }
+        });
+
+        it('should stop the heartbeat on close', async () => {
+            await hbManager.connect();
+            const ws = (hbManager as any).ws as MockWebSocket;
+
+            hbManager.close();
+            (ws.send as any).mockClear();
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(ws.send).not.toHaveBeenCalledWith('ping', expect.any(Function));
         });
     });
 

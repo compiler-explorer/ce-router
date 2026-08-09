@@ -4,12 +4,13 @@ import {logger} from './lib/logger.js';
 import {forwardToEnvironmentUrl} from './services/http-forwarder.js';
 import {ResultWaiter} from './services/result-waiter.js';
 import {RoutingInfo, clearRoutingCaches, lookupCompilerRouting, sendToSqs} from './services/routing.js';
-import {WebSocketManager, WebSocketManagerOptions} from './services/websocket-manager.js';
+import {PingMode, WebSocketManager, WebSocketManagerOptions} from './services/websocket-manager.js';
 import {createErrorResponse, createSuccessResponse, generateGuid} from './utils/index.js';
 
 export interface CompilerExplorerRouterConfig {
     timeoutSeconds?: number;
     websocketUrl?: string;
+    pingMode?: PingMode;
     websocketOptions?: Partial<WebSocketManagerOptions>;
 }
 
@@ -40,6 +41,8 @@ export class CompilerExplorerRouter {
                 reconnectInterval: 5000,
                 maxReconnectAttempts: 10,
                 pingInterval: 30000,
+                pongTimeout: 10000,
+                pingMode: config.pingMode || PingMode.Application,
                 ...config.websocketOptions,
             });
             this.resultWaiter = new ResultWaiter(this.wsManager);
@@ -78,6 +81,10 @@ export class CompilerExplorerRouter {
 
         this.wsManager.on('disconnected', ({code, reason}) => {
             logger.info(`Disconnected from WebSocket server: ${code} - ${reason}`);
+        });
+
+        this.wsManager.on('heartbeat-timeout', () => {
+            logger.warn('WebSocket heartbeat timed out; connection considered dead and will be reconnected');
         });
 
         this.wsManager.on('error', error => {
@@ -154,12 +161,15 @@ export class CompilerExplorerRouter {
             return;
         }
 
+        const lastActivityTime = this.wsManager.getLastActivityTime();
         res.json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
             websocket: isConnected ? 'connected' : 'disconnected',
             reconnectAttempts: isConnected ? 0 : reconnectAttempts,
             maxReconnectAttempts,
+            lastActivityTime: lastActivityTime || null,
+            secondsSinceLastActivity: lastActivityTime ? Math.round((Date.now() - lastActivityTime) / 1000) : null,
         });
     }
 

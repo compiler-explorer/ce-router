@@ -1,6 +1,7 @@
 import {Command} from 'commander';
 import {CompilerExplorerRouter} from './compiler-explorer-router.js';
 import {initialiseLogging, logger} from './lib/logger.js';
+import {PingMode} from './services/websocket-manager.js';
 
 // Environment variables
 const TIMEOUT_SECONDS = Number.parseInt(process.env.TIMEOUT_SECONDS || '60', 10);
@@ -32,6 +33,17 @@ function validateEnvironment(value: string): string {
     return value;
 }
 
+/**
+ * Parses and validates the WebSocket ping mode parameter.
+ */
+function parsePingMode(value: string): PingMode {
+    const mode = value as PingMode;
+    if (!Object.values(PingMode).includes(mode)) {
+        throw new Error(`Invalid ping mode: "${value}". Must be one of: ${Object.values(PingMode).join(', ')}`);
+    }
+    return mode;
+}
+
 // Parse command line arguments
 const program = new Command();
 program
@@ -46,6 +58,11 @@ program
     .option('--sqs-max-size <bytes>', 'Maximum SQS message size in bytes (default: 262144)')
     .option('--s3-overflow-bucket <bucket>', 'S3 bucket for overflow messages')
     .option('--s3-overflow-prefix <prefix>', 'S3 key prefix for overflow messages (default: sqs-overflow/)')
+    .option(
+        '--ping-mode <mode>',
+        'WebSocket heartbeat mode: "application" (text ping/pong via Lambda, default) or "control" (protocol ping/pong at API Gateway edge)',
+        parsePingMode,
+    )
     .parse();
 
 const options = program.opts();
@@ -78,6 +95,13 @@ if (!ENV) {
 }
 const envConfig = getEnvironmentConfig(ENV);
 const WEBSOCKET_URL = process.env.WEBSOCKET_URL || options.websocket || envConfig.websocketUrl;
+let PING_MODE: PingMode;
+try {
+    PING_MODE = parsePingMode(process.env.WEBSOCKET_PING_MODE || options.pingMode || PingMode.Application);
+} catch (error) {
+    console.error(`Error: ${(error as Error).message}`);
+    process.exit(1);
+}
 
 // Set environment name for other services to use
 process.env.ENVIRONMENT_NAME = envConfig.environmentName;
@@ -110,7 +134,9 @@ async function main() {
     const router = new CompilerExplorerRouter({
         timeoutSeconds: TIMEOUT_SECONDS,
         websocketUrl: WEBSOCKET_URL,
+        pingMode: PING_MODE,
     });
+    logger.info(`WebSocket heartbeat ping mode: ${PING_MODE}`);
 
     // Start the WebSocket connection
     try {

@@ -40,7 +40,12 @@ export class MockWebSocket extends EventEmitter {
 
     ping = vi.fn();
     pong = vi.fn();
-    terminate = vi.fn();
+    // Mirror the real `ws` library: terminate() immediately destroys the socket
+    // and emits a close event (abnormal closure code 1006).
+    terminate = vi.fn(() => {
+        this.readyState = this.CLOSED;
+        this.emit('close', 1006, '');
+    });
 
     constructor(url: string, _options?: any) {
         super();
