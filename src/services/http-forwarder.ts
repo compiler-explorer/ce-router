@@ -73,6 +73,12 @@ export function prepareForwardHeaders(headers: Record<string, string | string[]>
     delete forwardHeaders['te'];
     delete forwardHeaders['trailers'];
     delete forwardHeaders['transfer-encoding']; // Conflicts with content-length we set
+    // The caller's length describes the bytes they sent, and we do not forward those: a JSON body
+    // has been parsed and re-serialised, so it is only the same length if the caller happened to
+    // serialise exactly the way JSON.stringify does. Announcing the old length makes the target
+    // wait for bytes that never arrive, until something upstream gives up. Let the client set it
+    // from the body actually being sent.
+    delete forwardHeaders['content-length'];
 
     return forwardHeaders;
 }
@@ -118,7 +124,11 @@ export async function forwardToEnvironmentUrl(
             url: fullUrl,
             data: body,
             headers: forwardHeaders,
-            timeout: 60000, // 60 second timeout
+            // Shorter than the deadlines wrapping us (nginx proxy_read_timeout, the ALB and
+            // CloudFront idle timeouts are all 60s) so that a slow target surfaces as this
+            // service's own 502 naming the URL, rather than as whichever HTML error page the
+            // first outer layer to give up happens to produce.
+            timeout: 45000,
             validateStatus: () => true, // Don't throw on any status code
             maxContentLength: Number.POSITIVE_INFINITY,
             maxBodyLength: Number.POSITIVE_INFINITY,

@@ -162,14 +162,25 @@ describe('HTTP Forwarder', () => {
             const headers = {
                 'content-type': 'application/json',
                 'transfer-encoding': 'chunked',
-                'content-length': '1234',
                 'x-custom-header': 'value',
             };
             const result = prepareForwardHeaders(headers);
             expect(result['transfer-encoding']).toBeUndefined();
             expect(result['content-type']).toBe('application/json');
-            expect(result['content-length']).toBe('1234');
             expect(result['x-custom-header']).toBe('value');
+        });
+
+        it("drops the caller's content-length, which no longer describes the body", () => {
+            // The body is re-serialised before forwarding, so the caller's length only matches if
+            // they happened to serialise exactly the way JSON.stringify does. Announcing the old
+            // length leaves the target blocking on bytes that never arrive, until something
+            // upstream gives up - which reaches the caller as an HTML 504, not a usable error.
+            const result = prepareForwardHeaders({
+                'content-length': '155',
+                'content-type': 'application/json',
+            });
+            expect(result['content-length']).toBeUndefined();
+            expect(result['content-type']).toBe('application/json');
         });
     });
 
