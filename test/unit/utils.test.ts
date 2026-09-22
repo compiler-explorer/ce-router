@@ -154,7 +154,7 @@ describe('Utility functions', () => {
 
         it('should create JSON response by default', () => {
             const result = {...mockResult};
-            const response = createSuccessResponse(result, false, 'application/json');
+            const response = createSuccessResponse(result, false, true);
 
             expect(response.statusCode).toBe(200);
             expect(response.headers['Content-Type']).toBe('application/json; charset=utf-8');
@@ -167,9 +167,21 @@ describe('Utility functions', () => {
             expect(responseBody.code).toBe(0);
         });
 
+        it('defaults to plain text, matching the endpoint served directly', () => {
+            // docs/API.md: responses are plain text unless the caller asks for JSON. Deciding
+            // this from the raw header instead of Express's negotiation is what made the
+            // router answer JSON to a caller that sent no Accept at all.
+            expect(createSuccessResponse({...mockResult}, false, false).headers['Content-Type']).toBe(
+                'text/plain; charset=utf-8',
+            );
+            expect(createSuccessResponse({...mockResult}, false, true).headers['Content-Type']).toBe(
+                'application/json; charset=utf-8',
+            );
+        });
+
         it('should create plain text response when requested', () => {
             const result = {...mockResult};
-            const response = createSuccessResponse(result, false, 'text/plain');
+            const response = createSuccessResponse(result, false, false);
 
             expect(response.statusCode).toBe(200);
             expect(response.headers['Content-Type']).toBe('text/plain; charset=utf-8');
@@ -185,7 +197,7 @@ describe('Utility functions', () => {
                 asm: [{text: '\x1b[31mmov eax, 42\x1b[0m'}],
             };
 
-            const response = createSuccessResponse(resultWithAnsi, true, 'text/plain');
+            const response = createSuccessResponse(resultWithAnsi, true, false);
 
             expect(response.body).toContain('mov eax, 42');
             expect(response.body).not.toContain('\x1b[31m');
@@ -202,7 +214,7 @@ describe('Utility functions', () => {
                 },
             };
 
-            const response = createSuccessResponse(resultWithExecution, false, 'text/plain');
+            const response = createSuccessResponse(resultWithExecution, false, false);
 
             expect(response.body).toContain('Execution result with exit code 0');
             expect(response.body).toContain('Program output');
@@ -216,7 +228,7 @@ describe('Utility functions', () => {
                 stderr: [{text: 'Compilation error'}],
             };
 
-            const response = createSuccessResponse(errorResult, false, 'text/plain');
+            const response = createSuccessResponse(errorResult, false, false);
 
             expect(response.body).toContain('Compiler exited with result code 1');
             expect(response.body).toContain('Compilation error');

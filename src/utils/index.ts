@@ -113,18 +113,14 @@ export function createErrorResponse(statusCode: number, message: string): ApiRes
     };
 }
 
-export function createSuccessResponse(
-    result: CompilationResult,
-    filterAnsi: boolean,
-    acceptHeader: string,
-): ApiResponse {
+export function createSuccessResponse(result: CompilationResult, filterAnsi: boolean, wantsJson: boolean): ApiResponse {
     // Clean up internal fields
     delete result.guid;
     delete result.s3Key;
 
-    // Determine response format based on Accept header
-    if (acceptHeader?.toLowerCase().includes('text/plain')) {
-        // Plain text response
+    // Plain text unless the caller asked for JSON: the documented default, and what the
+    // compilation endpoint answers when it is served directly rather than through here.
+    if (!wantsJson) {
         let body = '';
 
         try {

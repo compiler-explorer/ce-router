@@ -251,6 +251,9 @@ export class CompilerExplorerRouter {
                     headers,
                     queryStringParameters,
                     routingInfo,
+                    // Negotiated by Express rather than by matching the header ourselves, so
+                    // this agrees with the compilation endpoint served directly.
+                    req.accepts(['text', 'json']) === 'json',
                 );
             }
         } catch (error) {
@@ -356,6 +359,7 @@ export class CompilerExplorerRouter {
         headers: any,
         queryStringParameters: Record<string, string>,
         routingInfo: RoutingInfo,
+        wantsJson: boolean,
     ): Promise<void> {
         // Queue-based routing
         const queueUrl = routingInfo.target;
@@ -381,8 +385,7 @@ export class CompilerExplorerRouter {
 
             // Get Accept header for response formatting
             const filterAnsi = queryStringParameters.filterAnsi === 'true';
-            const acceptHeader = (headers.accept || headers.Accept || '') as string;
-            const successResponse = createSuccessResponse(result, filterAnsi, acceptHeader);
+            const successResponse = createSuccessResponse(result, filterAnsi, wantsJson);
             res.status(successResponse.statusCode).set(successResponse.headers).send(successResponse.body);
         } catch (error) {
             // Handle both SQS errors and compilation result errors
