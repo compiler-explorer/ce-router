@@ -89,7 +89,16 @@ async function getActiveColor(): Promise<string> {
         logger.info(`Active color from SSM: ${color}`);
         return color;
     } catch (error) {
-        logger.warn('Failed to get active color from SSM, defaulting to blue:', error);
+        // Every request resolves its colour through here, so an SSM problem must not
+        // repoint the whole environment at blue. Keep serving the last known colour, and
+        // hold it for another TTL rather than re-asking SSM on every compile.
+        const lastKnownColor = activeColorCache.color;
+        if (lastKnownColor) {
+            logger.warn('Failed to get active color from SSM, keeping last known value:', error);
+            activeColorCache = {...activeColorCache, timestamp: now};
+            return lastKnownColor;
+        }
+        logger.warn('Failed to get active color from SSM and none is cached, defaulting to blue:', error);
         return 'blue';
     }
 }
