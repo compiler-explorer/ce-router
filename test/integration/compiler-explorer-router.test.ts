@@ -127,6 +127,7 @@ describe('CompilerExplorerRouter', () => {
 
                 const response = await request(app)
                     .post('/api/compiler/g132/compile')
+                    .set('Accept', 'application/json')
                     .send({
                         source: 'int main() { return 42; }',
                         options: ['-O2'],
@@ -155,6 +156,7 @@ describe('CompilerExplorerRouter', () => {
 
                 const response = await request(app)
                     .post('/api/compiler/g132/cmake')
+                    .set('Accept', 'application/json')
                     .send({
                         source: 'cmake_minimum_required(VERSION 3.10)',
                         options: [],
@@ -183,6 +185,7 @@ describe('CompilerExplorerRouter', () => {
 
                 const response = await request(app)
                     .post('/api/compiler/r1900/build/cargo')
+                    .set('Accept', 'application/json')
                     .send({
                         source: '[package]\nname = "example"',
                         options: [],
@@ -207,6 +210,7 @@ describe('CompilerExplorerRouter', () => {
 
                 await request(app)
                     .post('/api/compiler/g132/compile')
+                    .set('Accept', 'application/json')
                     .send({source: 'int main() { return 0; }'})
                     .expect(200);
 
@@ -220,6 +224,7 @@ describe('CompilerExplorerRouter', () => {
 
                 const response = await request(app)
                     .post('/api/compiler/g132/compile')
+                    .set('Accept', 'application/json')
                     .send({
                         source: 'int main() { return 0; }',
                     })
@@ -235,6 +240,7 @@ describe('CompilerExplorerRouter', () => {
 
                 const response = await request(app)
                     .post('/api/compiler/g132/compile')
+                    .set('Accept', 'application/json')
                     .send({
                         source: 'int main() { return 0; }',
                     })
@@ -285,6 +291,24 @@ describe('CompilerExplorerRouter', () => {
             });
         });
 
+        describe('Accept handling', () => {
+            it('answers plain text when the caller sends no Accept header', async () => {
+                // docs/API.md documents text as the default, and the compilation endpoint
+                // answers that way when served directly. Every other test here asks for JSON.
+                const originalWaitForResult = router.getMockResultWaiter().waitForResult;
+                router.getMockResultWaiter().waitForResult = async () => ({code: 0, asm: [{text: 'main:'}]});
+
+                const response = await request(app)
+                    .post('/api/compiler/g132/compile')
+                    .send({source: 'int main() { return 0; }'})
+                    .expect(200);
+
+                expect(response.headers['content-type']).toContain('text/plain');
+                expect(response.text).toContain('main:');
+                router.getMockResultWaiter().waitForResult = originalWaitForResult;
+            });
+        });
+
         describe('Content-Type handling', () => {
             it('should handle JSON content', async () => {
                 const compilationResult = {code: 0, asm: []};
@@ -294,6 +318,7 @@ describe('CompilerExplorerRouter', () => {
                 const response = await request(app)
                     .post('/api/compiler/g132/compile')
                     .set('Content-Type', 'application/json')
+                    .set('Accept', 'application/json')
                     .send({
                         source: 'int main() { return 0; }',
                         options: ['-O2'],
@@ -312,6 +337,7 @@ describe('CompilerExplorerRouter', () => {
                 const response = await request(app)
                     .post('/api/compiler/g132/compile')
                     .set('Content-Type', 'text/plain')
+                    .set('Accept', 'application/json')
                     .send('int main() { return 0; }')
                     .expect(200);
 
@@ -333,6 +359,7 @@ describe('CompilerExplorerRouter', () => {
 
             const response = await request(app)
                 .post('/api/compiler/g132/compile')
+                    .set('Accept', 'application/json')
                 .send({source: 'int main() { return 42; }'})
                 .expect(200);
 
