@@ -253,6 +253,142 @@ describe('Routing Service - S3 Overflow', () => {
         });
     });
 
+    describe('colour resolution', () => {
+        beforeEach(() => {
+            resetAllMocks();
+            clearRoutingCaches();
+            process.env.ENVIRONMENT_NAME = 'test';
+        });
+
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('should follow a colour switch on a cached compiler once the colour TTL expires', async () => {
+            vi.useFakeTimers();
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-12'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'test-compilation-queue'},
+                },
+            });
+
+            const before = await lookupCompilerRouting('gcc-12');
+            expect(before.target).toContain('test-compilation-queue-blue.fifo');
+
+            // The deploy switches colour, and its /admin/clear-cache never arrives.
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'green'}});
+            const lookupsBefore = mockDynamoDB.commandCalls(GetItemCommand).length;
+            vi.advanceTimersByTime(31_000);
+
+            const after = await lookupCompilerRouting('gcc-12');
+
+            expect(after.target).toContain('test-compilation-queue-green.fifo');
+            // Still a routing cache hit: only the colour was re-read, not the routing row.
+            expect(mockDynamoDB.commandCalls(GetItemCommand).length).toBe(lookupsBefore);
+        });
+
+        it('should keep serving a cached compiler from the colour cache within the TTL', async () => {
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-12'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'test-compilation-queue'},
+                },
+            });
+
+            await lookupCompilerRouting('gcc-12');
+            const ssmCallsAfterFirst = mockSSM.commandCalls(GetParameterCommand).length;
+            await lookupCompilerRouting('gcc-12');
+
+            expect(mockSSM.commandCalls(GetParameterCommand).length).toBe(ssmCallsAfterFirst);
+        });
+
+        it('should keep the last known colour when SSM fails', async () => {
+            vi.useFakeTimers();
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'green'}});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-12'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'test-compilation-queue'},
+                },
+            });
+
+            await lookupCompilerRouting('gcc-12');
+
+            // Resolving the colour is on the request path now, so an SSM outage must not
+            // repoint the whole environment at blue.
+            mockSSM.on(GetParameterCommand).rejects(new Error('ThrottlingException'));
+            vi.advanceTimersByTime(31_000);
+
+            const during = await lookupCompilerRouting('gcc-12');
+
+            expect(during.target).toContain('test-compilation-queue-green.fifo');
+        });
+
+        it('should hold the last known colour for a TTL rather than re-asking SSM per request', async () => {
+            vi.useFakeTimers();
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'green'}});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-12'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'test-compilation-queue'},
+                },
+            });
+
+            await lookupCompilerRouting('gcc-12');
+            mockSSM.on(GetParameterCommand).rejects(new Error('ThrottlingException'));
+            vi.advanceTimersByTime(31_000);
+            await lookupCompilerRouting('gcc-12');
+            const callsAfterFailure = mockSSM.commandCalls(GetParameterCommand).length;
+
+            await lookupCompilerRouting('gcc-12');
+            await lookupCompilerRouting('gcc-12');
+
+            expect(mockSSM.commandCalls(GetParameterCommand).length).toBe(callsAfterFailure);
+        });
+
+        it('should fall back to blue when SSM fails and no colour is cached', async () => {
+            mockSSM.on(GetParameterCommand).rejects(new Error('AccessDenied'));
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#gcc-12'},
+                    routingType: {S: 'queue'},
+                    queueName: {S: 'test-compilation-queue'},
+                },
+            });
+
+            const result = await lookupCompilerRouting('gcc-12');
+
+            expect(result.target).toContain('test-compilation-queue-blue.fifo');
+        });
+
+        it('should not resolve a colour for a URL-routed compiler', async () => {
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {
+                    compilerId: {S: 'test#winprod-msvc'},
+                    routingType: {S: 'url'},
+                    targetUrl: {S: 'https://winprod.compiler-explorer.com'},
+                },
+            });
+
+            const result = await lookupCompilerRouting('winprod-msvc');
+
+            expect(result).toEqual({
+                type: 'url',
+                target: 'https://winprod.compiler-explorer.com',
+                environment: '',
+            });
+            expect(mockSSM.commandCalls(GetParameterCommand)).toHaveLength(0);
+        });
+    });
+
     describe('clearRoutingCaches', () => {
         beforeEach(() => {
             resetAllMocks();
