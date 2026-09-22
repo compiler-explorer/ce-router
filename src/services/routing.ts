@@ -13,8 +13,19 @@ let activeColorCache = {
     TTL: 30000, // 30 seconds TTL
 };
 
-// In-memory cache for routing lookups
-const routingCache = new Map<string, RoutingInfo>();
+// In-memory cache of routing decisions. Deliberately holds only what the routing table
+// says -- never a value derived from the active colour, which changes on every deploy.
+// The colour is applied in resolveRouting() on each request, from activeColorCache, so a
+// missed /admin/clear-cache costs at most that cache's TTL instead of lasting forever.
+const routingCache = new Map<string, RoutingDecision>();
+
+interface RoutingDecision {
+    type: 'url' | 'queue';
+    environment: string;
+    targetUrl?: string;
+    // Absent for queue routing means the environment's own coloured queue.
+    queueName?: string;
+}
 
 export interface RoutingInfo {
     type: 'url' | 'queue';
@@ -122,8 +133,42 @@ function buildQueueUrl(queueName: string, activeColor: string): string {
     return baseUrl + fifoQueueName;
 }
 
+async function resolveRouting(decision: RoutingDecision): Promise<RoutingInfo> {
+    if (decision.type === 'url') {
+        return {type: 'url', target: decision.targetUrl || '', environment: decision.environment};
+    }
+
+    const queueUrl = decision.queueName
+        ? buildQueueUrl(decision.queueName, await getActiveColor())
+        : await getColoredQueueUrl();
+    return {type: 'queue', target: queueUrl, environment: decision.environment};
+}
+
 function getCompilerRoutingTableName(): string {
     return process.env.COMPILER_ROUTING_TABLE || 'CompilerRouting';
+}
+
+function decisionFromItem(compilerId: string, item: Record<string, any> | undefined): RoutingDecision {
+    const environment = item ? item.environment?.S || '' : 'unknown';
+    const targetUrl = item?.routingType?.S === 'url' ? item.targetUrl?.S : undefined;
+
+    if (targetUrl) {
+        logger.info(`Compiler ${compilerId} routed to URL: ${targetUrl}`);
+        return {type: 'url', targetUrl, environment};
+    }
+
+    const queueName = item?.routingType?.S === 'url' ? undefined : item?.queueName?.S;
+    if (queueName) {
+        logger.info(`Compiler ${compilerId} routed to queue: ${queueName}`);
+        return {type: 'queue', queueName, environment};
+    }
+
+    if (item) {
+        logger.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
+    } else {
+        logger.info(`No routing found for compiler ${compilerId}, using colored queue`);
+    }
+    return {type: 'queue', environment};
 }
 
 export async function lookupCompilerRouting(compilerId: string): Promise<RoutingInfo> {
@@ -134,10 +179,10 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
 
         // Check cache first
         const cacheKey = compositeKey;
-        const cachedEntry = routingCache.get(cacheKey);
-        if (cachedEntry) {
+        const cachedDecision = routingCache.get(cacheKey);
+        if (cachedDecision) {
             logger.debug(`Routing cache hit for compiler: ${compilerId}`);
-            return cachedEntry;
+            return resolveRouting(cachedDecision);
         }
 
         // Look up compiler in DynamoDB routing table using composite key
@@ -176,67 +221,10 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
             }
         }
 
-        if (item) {
-            const routingType = item.routingType?.S || 'queue';
-
-            if (routingType === 'url') {
-                const targetUrl = item.targetUrl?.S || '';
-                if (targetUrl) {
-                    const result: RoutingInfo = {
-                        type: 'url',
-                        target: targetUrl,
-                        environment: item.environment?.S || '',
-                    };
-                    // Cache the result
-                    routingCache.set(cacheKey, result);
-                    logger.info(`Compiler ${compilerId} routed to URL: ${targetUrl}`);
-                    logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
-                    return result;
-                }
-            } else {
-                // Queue routing - use queueName from DynamoDB to build full queue URL
-                const queueName = item.queueName?.S;
-                if (queueName) {
-                    const activeColor = await getActiveColor();
-                    const queueUrl = buildQueueUrl(queueName, activeColor);
-                    const result: RoutingInfo = {
-                        type: 'queue',
-                        target: queueUrl,
-                        environment: item.environment?.S || '',
-                    };
-                    // Cache the result
-                    routingCache.set(cacheKey, result);
-                    logger.info(`Compiler ${compilerId} routed to queue: ${queueName} (${queueUrl})`);
-                    logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
-                    return result;
-                }
-                // Fallback to colored queue if no queueName specified
-                const queueUrl = await getColoredQueueUrl();
-                const result: RoutingInfo = {
-                    type: 'queue',
-                    target: queueUrl,
-                    environment: item.environment?.S || '',
-                };
-                // Cache the result
-                routingCache.set(cacheKey, result);
-                logger.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
-                logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
-                return result;
-            }
-        }
-
-        // No routing found, use colored queue
-        logger.info(`No routing found for compiler ${compilerId}, using colored queue`);
-        const queueUrl = await getColoredQueueUrl();
-        const result: RoutingInfo = {
-            type: 'queue',
-            target: queueUrl,
-            environment: 'unknown',
-        };
-        // Cache the result
-        routingCache.set(cacheKey, result);
-        logger.debug(`Routing lookup complete for compiler: ${compilerId}, using colored queue`);
-        return result;
+        const decision = decisionFromItem(compilerId, item);
+        routingCache.set(cacheKey, decision);
+        logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
+        return resolveRouting(decision);
     } catch (error) {
         // On any error, fall back to colored queue
         logger.warn(`Failed to lookup routing for compiler ${compilerId}:`, error);
@@ -251,9 +239,11 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
 
 /**
  * Clears all routing and color caches.
- * This is called via the /admin/clear-cache endpoint during blue-green deployments
- * to ensure the router immediately picks up the new active color without waiting
- * for the 30-second cache TTL to expire.
+ * Called via /admin/clear-cache at the end of a blue-green deployment, so the router
+ * picks up the new active color and any routing-table changes immediately rather than
+ * waiting for the active color cache's 30-second TTL. Only the routing-table half needs
+ * this: routing decisions are cached without an expiry, since nothing else invalidates
+ * them, while the color they are resolved with expires on its own.
  */
 export function clearRoutingCaches(): void {
     // Clear active color cache
