@@ -359,7 +359,7 @@ describe('CompilerExplorerRouter', () => {
 
             const response = await request(app)
                 .post('/api/compiler/g132/compile')
-                    .set('Accept', 'application/json')
+                .set('Accept', 'application/json')
                 .send({source: 'int main() { return 42; }'})
                 .expect(200);
 
