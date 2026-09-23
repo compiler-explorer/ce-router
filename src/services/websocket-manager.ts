@@ -23,6 +23,7 @@ export interface WebSocketManagerOptions {
     pingInterval?: number;
     pongTimeout?: number;
     pingMode?: PingMode;
+    subscribeWaitMs?: number;
 }
 
 export interface PendingSubscription {
@@ -46,15 +47,21 @@ export class WebSocketManager extends EventEmitter {
     private isClosing = false;
     private subscriptions = new Set<string>();
     private pendingSubscriptions = new Map<string, number>();
+    private subscribeWaitMs: number;
+    private connectionWaiters: Array<(error?: Error) => void> = [];
 
     constructor(options: WebSocketManagerOptions) {
         super();
         this.url = options.url;
-        this.reconnectInterval = options.reconnectInterval || 5000;
-        this.maxReconnectAttempts = options.maxReconnectAttempts || 10;
-        this.pingInterval = options.pingInterval || 30000;
-        this.pongTimeout = options.pongTimeout || 10000;
-        this.pingMode = options.pingMode || PingMode.Application;
+        this.reconnectInterval = options.reconnectInterval ?? 5000;
+        this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+        this.pingInterval = options.pingInterval ?? 30000;
+        this.pongTimeout = options.pongTimeout ?? 10000;
+        this.pingMode = options.pingMode ?? PingMode.Application;
+        // A subscribe that arrives while the socket is down waits this long for it to come
+        // back. It has to stay well inside the router's own request deadline, so a caller
+        // still gets an answer rather than being handed a timeout by something upstream.
+        this.subscribeWaitMs = options.subscribeWaitMs ?? 10000;
     }
 
     connect(): Promise<void> {
@@ -68,6 +75,7 @@ export class WebSocketManager extends EventEmitter {
 
             this.ws.on('open', () => {
                 this.reconnectAttempts = 0;
+                this.resolveConnectionWaiters();
                 this.recordActivity();
                 this.startPing();
                 this.emit('connected');
@@ -128,11 +136,20 @@ export class WebSocketManager extends EventEmitter {
 
                 if (!this.isClosing && this.reconnectAttempts < this.maxReconnectAttempts) {
                     this.reconnectAttempts++;
+                    // Retry the first attempt at once. API Gateway closes every connection at
+                    // two hours whatever its health, so the common case is a socket that will
+                    // come straight back, and waiting the full interval before even trying is
+                    // what turns that routine close into seconds of failed requests.
+                    const delay = this.reconnectAttempts === 1 ? 0 : this.reconnectInterval;
                     setTimeout(() => {
                         this.connect().catch(error => {
                             logger.error('Reconnection failed:', error);
                         });
-                    }, this.reconnectInterval);
+                    }, delay);
+                } else if (!this.isClosing) {
+                    this.resolveConnectionWaiters(
+                        new Error(`WebSocket gave up after ${this.maxReconnectAttempts} reconnection attempts`),
+                    );
                 }
             });
 
@@ -169,10 +186,51 @@ export class WebSocketManager extends EventEmitter {
         });
     }
 
-    subscribe(topic: string): Promise<void> {
+    /**
+     * Subscribe, waiting for the socket if it happens to be down.
+     *
+     * Rejecting outright on a closed socket means every request arriving during a reconnect
+     * is answered with an immediate 500, which is a poor trade when the caller is willing to
+     * wait a minute for its result anyway.
+     */
+    async subscribe(topic: string): Promise<void> {
         this.subscriptions.add(topic);
         this.pendingSubscriptions.set(topic, Date.now());
-        return this.send(`subscribe: ${topic}`);
+        try {
+            await this.waitUntilConnected(this.subscribeWaitMs);
+            await this.send(`subscribe: ${topic}`);
+        } catch (error) {
+            // Undo the bookkeeping: a later reconnect resubscribes whatever is still pending,
+            // and this caller has already been given an error and is not listening any more.
+            this.subscriptions.delete(topic);
+            this.pendingSubscriptions.delete(topic);
+            throw error;
+        }
+    }
+
+    private waitUntilConnected(timeoutMs: number): Promise<void> {
+        if (this.ws?.readyState === WebSocket.OPEN) return Promise.resolve();
+        if (this.isClosing) return Promise.reject(new Error('WebSocket is closing'));
+        return new Promise<void>((resolve, reject) => {
+            const waiter = (error?: Error) => {
+                clearTimeout(timer);
+                if (error) reject(error);
+                else resolve();
+            };
+            const timer = setTimeout(() => {
+                this.connectionWaiters = this.connectionWaiters.filter(w => w !== waiter);
+                reject(new Error(`WebSocket did not reconnect within ${timeoutMs}ms`));
+            }, timeoutMs);
+            // An explicit list rather than a 'connected' listener per caller: under load there
+            // can be hundreds waiting at once, well past EventEmitter's listener warning.
+            this.connectionWaiters.push(waiter);
+        });
+    }
+
+    private resolveConnectionWaiters(error?: Error): void {
+        const waiters = this.connectionWaiters;
+        this.connectionWaiters = [];
+        for (const waiter of waiters) waiter(error);
     }
 
     unsubscribe(topic: string): Promise<void> {
@@ -184,6 +242,7 @@ export class WebSocketManager extends EventEmitter {
     close(): void {
         this.isClosing = true;
         this.stopPing();
+        this.resolveConnectionWaiters(new Error('WebSocket is closing'));
         this.subscriptions.clear();
         this.pendingSubscriptions.clear();
 

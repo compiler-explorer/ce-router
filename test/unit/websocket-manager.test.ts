@@ -465,3 +465,44 @@ describe('WebSocketManager', () => {
         });
     });
 });
+
+describe('WebSocketManager: subscribing while the socket is down', () => {
+    // A subscribe arriving during a reconnect used to reject synchronously, so the router
+    // answered every request in that window with an immediate 500 - seen on beta as 428
+    // sub-second 5xx in one minute, right after the events socket dropped. The caller is
+    // willing to wait a minute for its result, so waiting a moment for the socket is the
+    // better trade.
+    it('waits for the socket to come back rather than rejecting', async () => {
+        const manager = new WebSocketManager({
+            url: 'ws://localhost:8080',
+            reconnectInterval: 10_000,
+            maxReconnectAttempts: 3,
+            subscribeWaitMs: 2000,
+        });
+        await manager.connect();
+        ((manager as any).ws as MockWebSocket).simulateClose(1006, 'Connection lost');
+        expect(manager.isConnected()).toBe(false);
+
+        // Long reconnectInterval on purpose: this only passes because the first retry is
+        // immediate, which is what makes a routine two-hour close cheap instead of costly.
+        await expect(manager.subscribe('some-guid')).resolves.toBeUndefined();
+        expect(manager.getSubscriptions()).toContain('some-guid');
+        manager.close();
+    });
+
+    it('forgets a subscription it could not make', async () => {
+        const manager = new WebSocketManager({
+            url: 'ws://localhost:8080',
+            maxReconnectAttempts: 0,
+            subscribeWaitMs: 50,
+        });
+        await manager.connect();
+        ((manager as any).ws as MockWebSocket).simulateClose(1006, 'Connection lost');
+
+        await expect(manager.subscribe('doomed-guid')).rejects.toThrow(/did not reconnect/);
+        // Left behind, a reconnect would resubscribe on behalf of a caller that has already
+        // been given an error and gone away.
+        expect(manager.getSubscriptions()).not.toContain('doomed-guid');
+        manager.close();
+    });
+});
