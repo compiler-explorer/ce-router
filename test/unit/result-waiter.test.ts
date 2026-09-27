@@ -16,6 +16,16 @@ class MockWebSocketManager extends EventEmitter {
         return Promise.resolve();
     }
 
+    isConnected(): boolean {
+        return true;
+    }
+
+    async sendAck(_guid: string): Promise<void> {
+        return Promise.resolve();
+    }
+
+    markSubscriptionReceived(_guid: string): void {}
+
     getSubscriptions(): Set<string> {
         return new Set(this.subscriptions);
     }
@@ -95,6 +105,56 @@ describe('ResultWaiter', () => {
 
             // Test passes if no errors are thrown
             expect(true).toBe(true);
+        });
+    });
+
+    describe('acknowledging retransmissions', () => {
+        const guid = 'retransmitted-guid';
+        const result = {guid, code: 0, stdout: [], stderr: []};
+
+        async function serveOnce() {
+            const waiting = resultWaiter.waitForResult(guid, 60);
+            mockWsManager.simulateMessage(result);
+            await waiting;
+        }
+
+        it('acknowledges a result that arrives again after being served', async () => {
+            await serveOnce();
+
+            const ackSpy = vi.spyOn(mockWsManager, 'sendAck');
+            mockWsManager.simulateMessage(result);
+            await vi.waitFor(() => expect(ackSpy).toHaveBeenCalledWith(guid));
+        });
+
+        it('does not acknowledge a guid it never served', async () => {
+            const ackSpy = vi.spyOn(mockWsManager, 'sendAck');
+
+            mockWsManager.simulateMessage({guid: 'never-seen', code: 0});
+            await new Promise(resolve => setImmediate(resolve));
+
+            expect(ackSpy).not.toHaveBeenCalled();
+        });
+
+        it('stops acknowledging once the guid has been forgotten', async () => {
+            vi.useFakeTimers({shouldAdvanceTime: true});
+            try {
+                await serveOnce();
+
+                const ackSpy = vi.spyOn(mockWsManager, 'sendAck');
+                vi.setSystemTime(Date.now() + 120_001);
+                // Remembering another guid is what prunes the expired ones.
+                const other = resultWaiter.waitForResult('other-guid', 60);
+                mockWsManager.simulateMessage({guid: 'other-guid', code: 0});
+                await other;
+                ackSpy.mockClear();
+
+                mockWsManager.simulateMessage(result);
+                await new Promise(resolve => setImmediate(resolve));
+
+                expect(ackSpy).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 });

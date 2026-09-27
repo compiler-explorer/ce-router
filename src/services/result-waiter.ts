@@ -14,6 +14,13 @@ export class ResultWaiter {
         }
     >();
 
+    // A retransmission of a result we have already served - or given up waiting for - matches no
+    // subscription, and without an ack the worker resends for its whole retry budget while its
+    // instance stops polling for new work. Two minutes covers the requester's deadline plus that
+    // budget, after which nothing can still be in flight.
+    private static readonly SERVED_TTL_MS = 120_000;
+    private servedGuids = new Map<string, number>();
+
     constructor(private wsManager: WebSocketManager) {
         // Listen for messages from WebSocket
         this.wsManager.on('message', message => {
@@ -54,6 +61,7 @@ export class ResultWaiter {
                     }
 
                     this.subscriptions.delete(guid);
+                    this.rememberServed(guid);
 
                     // Send unsubscribe command to free server resources
                     try {
@@ -64,11 +72,31 @@ export class ResultWaiter {
                     } catch (unsubError) {
                         logger.warn(`Failed to send unsubscribe for GUID ${guid}:`, unsubError);
                     }
+                } else if (this.servedGuids.has(guid)) {
+                    logger.info(`Acknowledging retransmission of already-served GUID: ${guid}`);
+                    try {
+                        if (this.wsManager.isConnected()) {
+                            await this.wsManager.sendAck(guid);
+                        }
+                    } catch (ackError) {
+                        logger.warn(`Failed to acknowledge retransmission of GUID ${guid}:`, ackError);
+                    }
                 }
             }
         } catch (error) {
             logger.error('Error handling WebSocket message:', error);
         }
+    }
+
+    private rememberServed(guid: string): void {
+        const now = Date.now();
+        // Every entry gets the same TTL, so the map is in expiry order and the expired ones are
+        // all at the front.
+        for (const [servedGuid, expiresAt] of this.servedGuids) {
+            if (expiresAt > now) break;
+            this.servedGuids.delete(servedGuid);
+        }
+        this.servedGuids.set(guid, now + ResultWaiter.SERVED_TTL_MS);
     }
 
     private async fetchResultFromS3(s3Key: string): Promise<any> {
@@ -110,6 +138,7 @@ export class ResultWaiter {
             // Set up timeout
             const timeout = setTimeout(async () => {
                 this.subscriptions.delete(guid);
+                this.rememberServed(guid);
                 // Send unsubscribe on timeout
                 try {
                     if (this.wsManager.isConnected()) {
