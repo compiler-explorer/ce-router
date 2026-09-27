@@ -276,7 +276,7 @@ describe('Routing Service - S3 Overflow', () => {
             });
 
             const before = await lookupCompilerRouting('gcc-12');
-            expect(before.target).toContain('test-compilation-queue-blue.fifo');
+            expect(before?.target).toContain('test-compilation-queue-blue.fifo');
 
             // The deploy switches colour, and its /admin/clear-cache never arrives.
             mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'green'}});
@@ -285,7 +285,7 @@ describe('Routing Service - S3 Overflow', () => {
 
             const after = await lookupCompilerRouting('gcc-12');
 
-            expect(after.target).toContain('test-compilation-queue-green.fifo');
+            expect(after?.target).toContain('test-compilation-queue-green.fifo');
             // Still a routing cache hit: only the colour was re-read, not the routing row.
             expect(mockDynamoDB.commandCalls(GetItemCommand).length).toBe(lookupsBefore);
         });
@@ -327,7 +327,7 @@ describe('Routing Service - S3 Overflow', () => {
 
             const during = await lookupCompilerRouting('gcc-12');
 
-            expect(during.target).toContain('test-compilation-queue-green.fifo');
+            expect(during?.target).toContain('test-compilation-queue-green.fifo');
         });
 
         it('should hold the last known colour for a TTL rather than re-asking SSM per request', async () => {
@@ -365,7 +365,55 @@ describe('Routing Service - S3 Overflow', () => {
 
             const result = await lookupCompilerRouting('gcc-12');
 
-            expect(result.target).toContain('test-compilation-queue-blue.fifo');
+            expect(result?.target).toContain('test-compilation-queue-blue.fifo');
+        });
+
+        it('should report a compiler absent from the routing table as unknown', async () => {
+            mockDynamoDB.on(GetItemCommand).resolves({});
+
+            expect(await lookupCompilerRouting('clang1700')).toBeNull();
+        });
+
+        it('should still queue when the routing lookup fails', async () => {
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).rejects(new Error('ProvisionedThroughputExceededException'));
+
+            const result = await lookupCompilerRouting('gcc-12');
+
+            expect(result?.type).toBe('queue');
+            expect(result?.target).toContain('test-compilation-queue-blue.fifo');
+        });
+
+        it('should remember an unknown compiler only for a short while', async () => {
+            vi.useFakeTimers();
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).resolves({});
+
+            expect(await lookupCompilerRouting('gcc-new')).toBeNull();
+            const lookupsAfterFirst = mockDynamoDB.commandCalls(GetItemCommand).length;
+            expect(await lookupCompilerRouting('gcc-new')).toBeNull();
+            expect(mockDynamoDB.commandCalls(GetItemCommand).length).toBe(lookupsAfterFirst);
+
+            // The deploy adds the compiler to the table, and its /admin/clear-cache never arrives.
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {compilerId: {S: 'test#gcc-new'}, routingType: {S: 'queue'}},
+            });
+            vi.advanceTimersByTime(61_000);
+
+            expect((await lookupCompilerRouting('gcc-new'))?.type).toBe('queue');
+        });
+
+        it('should forget an unknown compiler when the caches are cleared', async () => {
+            mockSSM.on(GetParameterCommand).resolves({Parameter: {Value: 'blue'}});
+            mockDynamoDB.on(GetItemCommand).resolves({});
+            expect(await lookupCompilerRouting('gcc-new')).toBeNull();
+
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {compilerId: {S: 'test#gcc-new'}, routingType: {S: 'queue'}},
+            });
+            clearRoutingCaches();
+
+            expect((await lookupCompilerRouting('gcc-new'))?.type).toBe('queue');
         });
 
         it('should not resolve a colour for a URL-routed compiler', async () => {
@@ -402,7 +450,9 @@ describe('Routing Service - S3 Overflow', () => {
             });
 
             // Set up DynamoDB mock
-            mockDynamoDB.on(GetItemCommand).resolves({});
+            mockDynamoDB.on(GetItemCommand).resolves({
+                Item: {compilerId: {S: 'test#gcc-12'}, routingType: {S: 'queue'}},
+            });
 
             // First call to populate the cache
             const routingInfo1 = await lookupCompilerRouting('gcc-12');
@@ -441,7 +491,7 @@ describe('Routing Service - S3 Overflow', () => {
 
             // First lookup to populate routing cache
             const result1 = await lookupCompilerRouting('gcc-special');
-            expect(result1.type).toBe('queue');
+            expect(result1?.type).toBe('queue');
 
             // Count how many DynamoDB calls were made initially
             const initialDynamoDBCalls = mockDynamoDB.commandCalls(GetItemCommand).length;
