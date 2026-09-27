@@ -8,16 +8,17 @@ export interface SentSqsRequest {
 }
 
 export class MockRoutingService {
-    private routingTable = new Map<string, RoutingInfo>();
+    // null marks a compiler the routing table does not know.
+    private routingTable = new Map<string, RoutingInfo | null>();
     private sentRequests: SentSqsRequest[] = [];
 
-    setRouting(compilerid: string, routingInfo: RoutingInfo): void {
+    setRouting(compilerid: string, routingInfo: RoutingInfo | null): void {
         this.routingTable.set(compilerid, routingInfo);
     }
 
-    async lookupCompilerRouting(compilerid: string): Promise<RoutingInfo> {
+    async lookupCompilerRouting(compilerid: string): Promise<RoutingInfo | null> {
         const routing = this.routingTable.get(compilerid);
-        if (routing) {
+        if (routing !== undefined) {
             return routing;
         }
 

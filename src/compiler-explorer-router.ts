@@ -221,6 +221,15 @@ export class CompilerExplorerRouter {
             logger.debug('Content-Type:', headers['content-type']);
             logger.info(`Request GUID: ${guid}`);
 
+            // Before subscribing: an unknown compiler is answered here and needs no subscription.
+            const routingInfo = await this.getRoutingInfo(compilerid);
+            if (!routingInfo) {
+                logger.info(`Unknown compiler ${compilerid}, responding 404`);
+                const errorResponse = createErrorResponse(404, `Compiler ${compilerid} not found`);
+                res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
+                return;
+            }
+
             // Start WebSocket subscription as early as possible
             try {
                 await this.resultWaiter.subscribe(guid);
@@ -235,9 +244,6 @@ export class CompilerExplorerRouter {
                 res.status(errorResponse.statusCode).set(errorResponse.headers).send(errorResponse.body);
                 return;
             }
-
-            // Determine routing strategy for this compiler
-            const routingInfo = await this.getRoutingInfo(compilerid);
 
             if (routingInfo.type === 'url') {
                 await this.handleUrlRouting(res, guid, compilerid, body, buildSystem, headers, routingInfo);
@@ -263,7 +269,7 @@ export class CompilerExplorerRouter {
         }
     }
 
-    protected async getRoutingInfo(compilerid: string): Promise<RoutingInfo> {
+    protected async getRoutingInfo(compilerid: string): Promise<RoutingInfo | null> {
         return lookupCompilerRouting(compilerid);
     }
 
