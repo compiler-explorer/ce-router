@@ -152,8 +152,8 @@ describe('Utility functions', () => {
             stderr: [],
         };
 
-        it('answers a request error from the worker with its status, in JSON even for text', () => {
-            const result = {...mockResult, code: -1, requestError: {status: 400, message: 'Invalid filename'}};
+        it('answers a request error from the worker as a 400, in JSON even for text', () => {
+            const result = {error: true, message: 'Invalid filename'};
             const response = createSuccessResponse(result, false, false);
 
             expect(response.statusCode).toBe(400);

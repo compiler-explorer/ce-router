@@ -118,18 +118,18 @@ export function createSuccessResponse(result: CompilationResult, filterAnsi: boo
     delete result.guid;
     delete result.s3Key;
 
-    // The worker rejected the request before compiling it: answer the way CE's handleApiError does
-    // when it compiles directly, whatever format the caller asked for.
-    if (result.requestError) {
+    // The worker rejected the request before compiling it, and sent the body CE's handleApiError
+    // answers with when it compiles directly: answer with that, as JSON whatever the caller asked for.
+    if (result.error === true) {
         return {
-            statusCode: result.requestError.status,
+            statusCode: 400,
             headers: {
                 'Content-Type': 'application/json; charset=utf-8',
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
             },
-            body: JSON.stringify({error: true, message: result.requestError.message}),
+            body: JSON.stringify({error: true, message: result.message}),
         };
     }
 
