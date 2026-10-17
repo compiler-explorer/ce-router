@@ -118,6 +118,21 @@ export function createSuccessResponse(result: CompilationResult, filterAnsi: boo
     delete result.guid;
     delete result.s3Key;
 
+    // The worker rejected the request before compiling it: answer the way CE's handleApiError does
+    // when it compiles directly, whatever format the caller asked for.
+    if (result.requestError) {
+        return {
+            statusCode: result.requestError.status,
+            headers: {
+                'Content-Type': 'application/json; charset=utf-8',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Accept, Authorization',
+            },
+            body: JSON.stringify({error: true, message: result.requestError.message}),
+        };
+    }
+
     // Plain text unless the caller asked for JSON: the documented default, and what the
     // compilation endpoint answers when it is served directly rather than through here.
     if (!wantsJson) {

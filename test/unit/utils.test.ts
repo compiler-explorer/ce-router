@@ -152,6 +152,15 @@ describe('Utility functions', () => {
             stderr: [],
         };
 
+        it('answers a request error from the worker with its status, in JSON even for text', () => {
+            const result = {...mockResult, code: -1, requestError: {status: 400, message: 'Invalid filename'}};
+            const response = createSuccessResponse(result, false, false);
+
+            expect(response.statusCode).toBe(400);
+            expect(response.headers['Content-Type']).toBe('application/json; charset=utf-8');
+            expect(JSON.parse(response.body)).toEqual({error: true, message: 'Invalid filename'});
+        });
+
         it('should create JSON response by default', () => {
             const result = {...mockResult};
             const response = createSuccessResponse(result, false, true);
