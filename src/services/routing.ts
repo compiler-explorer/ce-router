@@ -374,7 +374,10 @@ export async function sendToSqs(
             new SendMessageCommand({
                 QueueUrl: queueUrl,
                 MessageBody: finalMessageBody,
-                MessageGroupId: 'default',
+                // A group of its own: FIFO hands out nothing more from a group while one of its messages is in
+                // flight, so a shared group serialises every worker and lets one dead receive stall the whole queue
+                // until its visibility timeout. Requests are independent, so nothing needs ordering between them.
+                MessageGroupId: guid,
                 MessageDeduplicationId: guid,
             }),
         );

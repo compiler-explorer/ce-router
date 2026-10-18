@@ -61,6 +61,21 @@ describe('Routing Service - S3 Overflow', () => {
             expect(s3Calls).toHaveLength(0);
         });
 
+        it('should put each request in a message group of its own', async () => {
+            process.env.SQS_MAX_MESSAGE_SIZE = '1024';
+            mockS3.on(PutObjectCommand).resolves({ETag: '"etag"'});
+            mockSQS.on(SendMessageCommand).resolves({MessageId: 'msg-group'});
+
+            const smallBody = JSON.stringify({source: 'int main() {}'});
+            const largeBody = JSON.stringify({source: 'x'.repeat(2000)});
+            await sendToSqs('guid-a', mockCompilerId, smallBody, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
+            await sendToSqs('guid-b', mockCompilerId, largeBody, undefined, mockHeaders, mockQueryParams, mockQueueUrl);
+
+            const inputs = mockSQS.commandCalls(SendMessageCommand).map(call => call.args[0].input);
+            expect(inputs.map(input => input.MessageGroupId)).toEqual(['guid-a', 'guid-b']);
+            expect(inputs.map(input => input.MessageDeduplicationId)).toEqual(['guid-a', 'guid-b']);
+        });
+
         it('should store large messages in S3 and send reference to SQS', async () => {
             // Set a small max message size for testing
             process.env.SQS_MAX_MESSAGE_SIZE = '1024'; // 1KB for testing
