@@ -250,6 +250,26 @@ describe('CompilerExplorerRouter', () => {
                     error: expect.stringContaining('Failed to setup result subscription'),
                 });
             });
+
+            it.each([
+                '/api/compiler/clang1700/compile',
+                '/api/compiler/clang1700/cmake',
+                '/beta/api/compiler/clang1700/build/cargo',
+            ])('should answer %s with 404 for a compiler the routing table does not know', async path => {
+                router.setRouting('clang1700', null);
+                // Answered before subscribing, so a subscribe that would fail never happens.
+                router.setShouldFailSubscribe(true);
+
+                const response = await request(app)
+                    .post(path)
+                    .set('Accept', 'application/json')
+                    .send({source: 'int main() { return 0; }'})
+                    .expect(404);
+
+                expect(response.body).toEqual({error: 'Compiler clang1700 not found'});
+                expect(response.headers['access-control-allow-origin']).toBe('*');
+                expect(router.getMockRoutingService().getSentRequests()).toHaveLength(0);
+            });
         });
 
         describe('Environment-prefixed routes', () => {

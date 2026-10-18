@@ -23,7 +23,7 @@ export class TestableCompilerExplorerRouter extends CompilerExplorerRouter {
     }
 
     // Override the routing lookup method to use our mock
-    protected async getRoutingInfo(compilerid: string): Promise<RoutingInfo> {
+    protected async getRoutingInfo(compilerid: string): Promise<RoutingInfo | null> {
         return this.mockRoutingService.lookupCompilerRouting(compilerid);
     }
 
@@ -49,7 +49,7 @@ export class TestableCompilerExplorerRouter extends CompilerExplorerRouter {
     }
 
     // Test helper methods
-    public setRouting(compilerid: string, routingInfo: RoutingInfo): void {
+    public setRouting(compilerid: string, routingInfo: RoutingInfo | null): void {
         this.mockRoutingService.setRouting(compilerid, routingInfo);
     }
 
