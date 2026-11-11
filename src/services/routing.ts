@@ -19,6 +19,13 @@ let activeColorCache = {
 // missed /admin/clear-cache costs at most that cache's TTL instead of lasting forever.
 const routingCache = new Map<string, RoutingDecision>();
 
+// Compilers the routing table does not know, with when to look again. Unlike a routing
+// decision this expires on its own: the table is written by the deploy after it switches
+// colour, so a compiler new in that deploy is briefly absent, and it must not stay 404
+// for longer than this if the deploy's /admin/clear-cache never arrives.
+const unknownCompilerCache = new Map<string, number>();
+const UNKNOWN_COMPILER_TTL_MS = 60_000;
+
 interface RoutingDecision {
     type: 'url' | 'queue';
     environment: string;
@@ -157,30 +164,31 @@ function getCompilerRoutingTableName(): string {
     return process.env.COMPILER_ROUTING_TABLE || 'CompilerRouting';
 }
 
-function decisionFromItem(compilerId: string, item: Record<string, any> | undefined): RoutingDecision {
-    const environment = item ? item.environment?.S || '' : 'unknown';
-    const targetUrl = item?.routingType?.S === 'url' ? item.targetUrl?.S : undefined;
+function decisionFromItem(compilerId: string, item: Record<string, any>): RoutingDecision {
+    const environment = item.environment?.S || '';
+    const targetUrl = item.routingType?.S === 'url' ? item.targetUrl?.S : undefined;
 
     if (targetUrl) {
         logger.info(`Compiler ${compilerId} routed to URL: ${targetUrl}`);
         return {type: 'url', targetUrl, environment};
     }
 
-    const queueName = item?.routingType?.S === 'url' ? undefined : item?.queueName?.S;
+    const queueName = item.routingType?.S === 'url' ? undefined : item.queueName?.S;
     if (queueName) {
         logger.info(`Compiler ${compilerId} routed to queue: ${queueName}`);
         return {type: 'queue', queueName, environment};
     }
 
-    if (item) {
-        logger.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
-    } else {
-        logger.info(`No routing found for compiler ${compilerId}, using colored queue`);
-    }
+    logger.info(`Compiler ${compilerId} routed to colored queue (no queueName in DynamoDB)`);
     return {type: 'queue', environment};
 }
 
-export async function lookupCompilerRouting(compilerId: string): Promise<RoutingInfo> {
+/**
+ * Looks up where to send requests for a compiler. Resolves to null when the routing table has no entry for it, which
+ * the caller answers with a 404 as the compilation endpoint served directly does, rather than queueing a request no
+ * worker can serve. A failed lookup is not the same as an absent entry: that still falls back to the coloured queue.
+ */
+export async function lookupCompilerRouting(compilerId: string): Promise<RoutingInfo | null> {
     try {
         // Create composite key with environment prefix for isolation
         const environmentName = getEnvironmentName();
@@ -192,6 +200,14 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
         if (cachedDecision) {
             logger.debug(`Routing cache hit for compiler: ${compilerId}`);
             return resolveRouting(cachedDecision);
+        }
+        const unknownUntil = unknownCompilerCache.get(cacheKey);
+        if (unknownUntil !== undefined) {
+            if (Date.now() < unknownUntil) {
+                logger.debug(`Unknown compiler cache hit for compiler: ${compilerId}`);
+                return null;
+            }
+            unknownCompilerCache.delete(cacheKey);
         }
 
         // Look up compiler in DynamoDB routing table using composite key
@@ -230,6 +246,12 @@ export async function lookupCompilerRouting(compilerId: string): Promise<Routing
             }
         }
 
+        if (!item) {
+            logger.info(`No routing found for compiler ${compilerId}, treating it as unknown`);
+            unknownCompilerCache.set(cacheKey, Date.now() + UNKNOWN_COMPILER_TTL_MS);
+            return null;
+        }
+
         const decision = decisionFromItem(compilerId, item);
         routingCache.set(cacheKey, decision);
         logger.debug(`Routing lookup complete for compiler: ${compilerId}`);
@@ -264,6 +286,7 @@ export function clearRoutingCaches(): void {
 
     // Clear routing cache
     routingCache.clear();
+    unknownCompilerCache.clear();
 
     logger.info('Routing caches cleared: active color cache and compiler routing cache');
 }

@@ -69,6 +69,8 @@ The service supports two routing methods:
 - Results are returned via WebSocket connections
 - Supports automatic failover and load balancing
 - Used for most compilation requests
+- A compiler absent from the routing table gets a 404 without being queued; that absence is cached for only 60s,
+  since the deploy writes the table after switching colour. A failed DynamoDB lookup still falls back to the queue
 
 ### URL-based Routing
 - Direct HTTP forwarding to specific target URLs
