@@ -1,17 +1,27 @@
 import express from 'express';
 import type {Application, Request, Response} from 'express';
 import {logger} from './lib/logger.js';
+import {metricsRegistry} from './lib/metrics.js';
+import type {CompilationCache} from './services/compilation-cache.js';
 import {forwardToEnvironmentUrl} from './services/http-forwarder.js';
 import {ResultWaiter} from './services/result-waiter.js';
 import {RoutingInfo, clearRoutingCaches, lookupCompilerRouting, sendToSqs} from './services/routing.js';
 import {PingMode, WebSocketManager, WebSocketManagerOptions} from './services/websocket-manager.js';
-import {CMAKE_BUILD_SYSTEM, createErrorResponse, createSuccessResponse, generateGuid} from './utils/index.js';
+import {
+    CMAKE_BUILD_SYSTEM,
+    CompilationResult,
+    createErrorResponse,
+    createSuccessResponse,
+    generateGuid,
+} from './utils/index.js';
 
 export interface CompilerExplorerRouterConfig {
     timeoutSeconds?: number;
     websocketUrl?: string;
     pingMode?: PingMode;
     websocketOptions?: Partial<WebSocketManagerOptions>;
+    /** Checked before a compile request is queued; a hit is answered without queueing. */
+    compilationCache?: Pick<CompilationCache, 'lookup'>;
 }
 
 export interface CompilerRequest extends Request {
@@ -27,9 +37,11 @@ export class CompilerExplorerRouter {
     private wsManager: WebSocketManager;
     private resultWaiter: ResultWaiter;
     private timeoutSeconds: number;
+    private compilationCache: Pick<CompilationCache, 'lookup'> | undefined;
 
     constructor(config: CompilerExplorerRouterConfig = {}, wsManager?: WebSocketManager, resultWaiter?: ResultWaiter) {
         this.timeoutSeconds = config.timeoutSeconds || 60;
+        this.compilationCache = config.compilationCache;
         this.app = express();
 
         // Allow dependency injection for testing
@@ -100,6 +112,10 @@ export class CompilerExplorerRouter {
     private setupRoutes(): void {
         // Health check endpoint
         this.app.get('/healthcheck', (req, res) => this.handleHealthCheck(req, res));
+
+        this.app.get('/metrics', async (_req, res) => {
+            res.set('Content-Type', metricsRegistry.contentType).send(await metricsRegistry.metrics());
+        });
 
         // Admin endpoint to clear routing caches
         // This is called by the blue-green deployment script to ensure the router immediately
@@ -221,6 +237,18 @@ export class CompilerExplorerRouter {
             logger.debug('Content-Type:', headers['content-type']);
             logger.info(`Request GUID: ${guid}`);
 
+            // Looked up while the subscription and routing are being set up, so that a miss costs next to nothing.
+            // Never rejects.
+            const cachedResult: Promise<CompilationResult | null> = this.compilationCache
+                ? this.compilationCache.lookup(
+                      compilerid,
+                      body,
+                      buildSystem,
+                      headers as Record<string, string | string[]>,
+                      queryStringParameters,
+                  )
+                : Promise.resolve(null);
+
             // Start WebSocket subscription as early as possible
             try {
                 await this.resultWaiter.subscribe(guid);
@@ -251,6 +279,7 @@ export class CompilerExplorerRouter {
                     headers,
                     queryStringParameters,
                     routingInfo,
+                    cachedResult,
                     // Negotiated by Express rather than by matching the header ourselves, so
                     // this agrees with the compilation endpoint served directly.
                     req.accepts(['text', 'json']) === 'json',
@@ -359,11 +388,21 @@ export class CompilerExplorerRouter {
         headers: any,
         queryStringParameters: Record<string, string>,
         routingInfo: RoutingInfo,
+        cachedResult: Promise<CompilationResult | null>,
         wantsJson: boolean,
     ): Promise<void> {
         // Queue-based routing
         const queueUrl = routingInfo.target;
         let resultPromise: Promise<any> | null = null;
+        const filterAnsi = queryStringParameters.filterAnsi === 'true';
+
+        const cached = await cachedResult;
+        if (cached) {
+            await this.resultWaiter.unsubscribe(guid);
+            const cachedResponse = createSuccessResponse(cached, filterAnsi, wantsJson);
+            res.status(cachedResponse.statusCode).set(cachedResponse.headers).send(cachedResponse.body);
+            return;
+        }
 
         try {
             // Send request to SQS queue
@@ -383,8 +422,6 @@ export class CompilerExplorerRouter {
             // Wait for compilation result
             const result = await resultPromise;
 
-            // Get Accept header for response formatting
-            const filterAnsi = queryStringParameters.filterAnsi === 'true';
             const successResponse = createSuccessResponse(result, filterAnsi, wantsJson);
             res.status(successResponse.statusCode).set(successResponse.headers).send(successResponse.body);
         } catch (error) {
