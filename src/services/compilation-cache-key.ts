@@ -2,11 +2,12 @@ import crypto from 'node:crypto';
 
 /**
  * Builds the key a Compiler Explorer worker looks a compilation up under in its compilation cache, so that the router can
- * look a result up before queueing the request. Everything here mirrors code in the compiler-explorer repository, and
- * has to stay in step with it:
+ * look a result up before queueing the request. The key is the request as it arrived plus the compiler's id: the worker
+ * builds it before adapting the request to the compiler. Everything here mirrors code in the compiler-explorer
+ * repository, and has to stay in step with it:
  *
  * - CompileHandler.parseRequestReusable (lib/handlers/compile.ts), the JSON branch: how the request is parsed;
- * - BaseCompiler.compile (lib/base-compiler.ts): fixFiltersBeforeCacheKey, fixBackendOptionsBeforeCacheKey, getCacheKey;
+ * - BaseCompiler.getCacheKey (lib/base-compiler.ts), called at the start of compile(): what the key holds;
  * - BaseCache.hash (lib/cache/base.ts) and getHash (lib/utils.ts): how the key is hashed;
  * - splitArguments (shared/common-utils.ts): how a string of arguments is split.
  *
@@ -20,68 +21,14 @@ import crypto from 'node:crypto';
 
 const HASH_VERSION = 'Compiler Explorer Cache Version 1';
 
-/** The fields of a CompilerInfo the key depends on, as /api/compilers?fields=... gives them. */
+/** What it takes to find the compiler a request names, as /api/compilers?fields=... gives it. */
 export interface CompilerCacheInfo {
     id: string;
     lang: string;
     alias?: string[];
-    compilerType?: string;
-    supportsBinary?: boolean;
-    supportsBinaryObject?: boolean;
-    supportsDarkBackgroundColours?: boolean;
-    linkFlag?: string;
 }
 
-export const COMPILER_CACHE_INFO_FIELDS = [
-    'id',
-    'lang',
-    'alias',
-    'compilerType',
-    'supportsBinary',
-    'supportsBinaryObject',
-    'supportsDarkBackgroundColours',
-    'linkFlag',
-] as const;
-
-/**
- * Compiler types whose class, or a class it inherits from, changes the key: by overriding getDefaultFilters,
- * fixFiltersBeforeCacheKey or compile() itself. Requests for these are not checked. Found in lib/compilers/ by looking
- * for those overrides and following `extends`; a type added there with an override of its own has to be added here.
- */
-export const COMPILER_TYPES_WITH_OWN_CACHE_KEY: ReadonlySet<string> = new Set([
-    'analysis-tool', // getDefaultFilters
-    'llvm-mca', // extends analysis-tool
-    'osaca', // getDefaultFilters, extends analysis-tool
-    'android-d8', // builds filters from other compilers' defaults
-    'android-r8', // extends android-d8
-    'dex2oat', // builds filters from other compilers' defaults
-    'coccinelle_for_c', // getDefaultFilters
-    'coccinelle_for_cpp', // extends coccinelle_for_c
-    'cutedsl', // getDefaultFilters
-    'llvmmos', // fixFiltersBeforeCacheKey
-    'micropython', // compile() sets filters.binary
-    'tilelang', // getDefaultFilters
-    'tinygo', // fixFiltersBeforeCacheKey
-    'triton', // getDefaultFilters
-]);
-
-/** BaseCompiler.getDefaultFilters(), in its order: the order is part of the key. */
-function defaultFilters(): Record<string, unknown> {
-    return {
-        binary: false,
-        execute: false,
-        demangle: true,
-        intel: true,
-        commentOnly: true,
-        directives: true,
-        labels: true,
-        optOutput: false,
-        libraryCode: false,
-        trim: false,
-        binaryObject: false,
-        debugCalls: false,
-    };
-}
+export const COMPILER_CACHE_INFO_FIELDS = ['id', 'lang', 'alias'] as const;
 
 export interface CompilationCacheKey {
     compiler: {id: string};
@@ -94,15 +41,7 @@ export interface CompilationCacheKey {
     files: unknown[];
 }
 
-export type SkipReason =
-    | 'not-json'
-    | 'build'
-    | 'bypass-cache'
-    | 'execute'
-    | 'unknown-compiler'
-    | 'compiler-type'
-    | 'link-flag'
-    | 'unusual-request';
+export type SkipReason = 'not-json' | 'build' | 'bypass-cache' | 'execute' | 'unknown-compiler' | 'unusual-request';
 
 export type CacheKeyOutcome = {key: CompilationCacheKey; compilerId: string} | {skip: SkipReason};
 
@@ -176,15 +115,14 @@ export function buildCompilationCacheKey(
     catalogue: CompilerCatalogue,
 ): CacheKeyOutcome {
     if (buildSystem || message.buildSystem || message.isCMake) return {skip: 'build'};
+    // Non-JSON requests are parsed with the compiler's default filters, so their key depends on the compiler.
     if (!isPlainObject(message.headers) || !isJsonContentType(message.headers['content-type'])) {
         return {skip: 'not-json'};
     }
 
+    // The key holds the id of the compiler the worker finds, which for an alias is not the id the request names.
     const compiler = catalogue.find(message.lang, message.compilerId);
     if (!compiler) return {skip: 'unknown-compiler'};
-    if (compiler.compilerType && COMPILER_TYPES_WITH_OWN_CACHE_KEY.has(compiler.compilerType)) {
-        return {skip: 'compiler-type'};
-    }
 
     // parseRequestReusable
     const requestOptions = message.options;
@@ -208,15 +146,15 @@ export function buildCompilationCacheKey(
         options = [];
     }
 
-    const compilerOptions = opts.compilerOptions || {};
-    if (!isPlainObject(compilerOptions)) return {skip: 'unusual-request'};
-    const backendOptions: Record<string, unknown> = {...compilerOptions};
+    const backendOptions = opts.compilerOptions || {};
+    if (!isPlainObject(backendOptions)) return {skip: 'unusual-request'};
 
+    // Spread as the worker does it, so a string or an array would come apart into characters or indices: not checked.
     const requestFilters = opts.filters;
     if (requestFilters !== undefined && requestFilters !== null && !isPlainObject(requestFilters)) {
         return {skip: 'unusual-request'};
     }
-    const filters: Record<string, unknown> = {...defaultFilters(), ...requestFilters};
+    const filters: Record<string, unknown> = {...requestFilters};
 
     const inputTools = opts.tools || [];
     if (!Array.isArray(inputTools) || !inputTools.every(isPlainObject)) return {skip: 'unusual-request'};
@@ -231,33 +169,6 @@ export function buildCompilationCacheKey(
 
     // A compile that is also run needs the execution cache as well, whose key is a different thing again.
     if (filters.execute || backendOptions.executorRequest) return {skip: 'execute'};
-
-    // tryAutodetectLibraries may turn these into libraries, which changes both options and libraries.
-    const linkFlag = compiler.linkFlag || '-l';
-    if (options.some(option => option.indexOf(linkFlag) === 0)) return {skip: 'link-flag'};
-
-    // fixFiltersBeforeCacheKey
-    if (filters.binary && !compiler.supportsBinary) {
-        delete filters.binary;
-    }
-    if ((compiler.lang === 'c++' || compiler.lang === 'c') && options.includes('-E')) {
-        for (const name in filters) {
-            filters[name] = false;
-        }
-        if (filters.binaryObject && !compiler.supportsBinaryObject) {
-            delete filters.binaryObject;
-        }
-    }
-    if (files.length > 0) {
-        filters.dontMaskFilenames = true;
-    }
-
-    // fixBackendOptionsBeforeCacheKey
-    if (compiler.supportsDarkBackgroundColours) {
-        backendOptions.darkBackgroundColours = backendOptions.darkBackgroundColours === true;
-    } else {
-        delete backendOptions.darkBackgroundColours;
-    }
 
     // getCacheKey
     return {

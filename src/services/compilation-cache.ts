@@ -35,8 +35,8 @@ export function compilerListUrlFor(environmentName: string): string {
 
 /**
  * Answers a compile request from the workers' compilation cache, when it holds the result, so the request needn't be
- * queued. The key is built the way a worker builds it (see compilation-cache-key.ts), from the compiler settings
- * /api/compilers gives; until that list has loaded, nothing is checked.
+ * queued. The key is built the way a worker builds it (see compilation-cache-key.ts); the compiler ids and aliases it
+ * needs to name the compiler come from /api/compilers, and until that list has loaded, nothing is checked.
  */
 export class CompilationCache {
     private catalogue: CompilerCatalogue | undefined;
@@ -77,7 +77,7 @@ export class CompilationCache {
         try {
             const compilers = await this.fetchCompilers();
             this.setCompilers(compilers);
-            logger.info(`Compilation cache check: loaded settings of ${this.catalogue?.size} compilers`);
+            logger.info(`Compilation cache check: loaded ${this.catalogue?.size} compilers`);
         } catch (error) {
             // An old list is still right for nearly every compiler, so keep using it.
             logger.warn(

@@ -94,7 +94,7 @@ node dist/index.js --env prod --websocket wss://custom.websocket.url
 
 - AWS credentials for SQS, DynamoDB, and SSM access, and read access to the compilation cache in S3
 - `COMPILATION_CACHE_CHECK=false` turns the compilation cache check off
-- `COMPILER_LIST_URL` overrides where the compiler settings for the cache check come from (default: the environment's
+- `COMPILER_LIST_URL` overrides where the compiler list for the cache check (ids and aliases) comes from (default: the environment's
   `/api/compilers` on godbolt.org)
 
 ## License

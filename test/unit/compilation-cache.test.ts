@@ -16,7 +16,7 @@ const mockS3 = mockClient(s3);
 
 function cacheWithCompilers() {
     const cache = new CompilationCache({compilerListUrl: 'unused', s3Client: s3, bucket: 'bucket', prefix: 'cache/'});
-    cache.setCompilers([{id: 'g161', lang: 'c++', supportsBinary: true}]);
+    cache.setCompilers([{id: 'g161', lang: 'c++'}]);
     return cache;
 }
 

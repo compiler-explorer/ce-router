@@ -14,26 +14,10 @@ import {buildQueueMessage} from '../../src/services/routing.js';
 
 const SOURCE = '#include <cstdio>\nint main() { std::puts("hi"); return 0; }\n';
 
-// The settings /api/compilers gives for the compilers the dev instance used.
+// What /api/compilers gives for the compilers the dev instance used.
 const COMPILERS: CompilerCacheInfo[] = [
-    {
-        id: 'g161',
-        lang: 'c++',
-        alias: [],
-        compilerType: '',
-        supportsBinary: true,
-        supportsBinaryObject: true,
-        linkFlag: '-l',
-    },
-    {
-        id: 'clang2110',
-        lang: 'c++',
-        alias: [],
-        compilerType: 'clang',
-        supportsBinary: true,
-        supportsBinaryObject: true,
-        linkFlag: '-l',
-    },
+    {id: 'g161', lang: 'c++', alias: []},
+    {id: 'clang2110', lang: 'c++', alias: []},
 ];
 
 const UI_COMPILER_OPTIONS = {
@@ -48,7 +32,6 @@ const UI_COMPILER_OPTIONS = {
     produceLeanC: null,
     produceYul: null,
     overrides: [],
-    darkBackgroundColours: true,
 };
 
 const UI_FILTERS = {
@@ -195,61 +178,67 @@ describe('Compilation cache key', () => {
                 'compiler pane, no extra panes',
                 'g161',
                 compilerPaneBody(),
-                'd1475dc01d3c9464b477821ffea245539a292d0478dcbe3f1f8f517f805893d8',
+                '702296f4d606f556cf9fcad5485a25df9aa27b75e1a56f153dfd90ee7abdf5ec',
             ],
             [
                 'compiler pane, link to binary',
                 'g161',
                 compilerPaneBody({filters: {binary: true}}),
-                'a43b06ea8fd13727d46cfe71cabbd02e8d3c0a0c13feafaff8d43912526539da',
+                '64a51f778dd49bef7f35d096877551a725529f26c0a9ea4e05abf246947985c7',
             ],
             [
                 'compiler pane, -E',
                 'g161',
                 compilerPaneBody({userArguments: '-E'}),
-                '505cc8384f90f5f434bd628483613128381095980dd54cad06456e59477e7a87',
+                '9f9451b2793b0b1298d3e44f386dbef5f88268998e45ee9f4d4c16d432bfa28d',
             ],
             [
                 'compiler pane, boost 1.90 selected',
                 'g161',
                 compilerPaneBody({libraries: [{id: 'boost', version: '190'}]}),
-                '058e8098a15485dad8295dd34e7c5ec9697e19952e16679465f5e5c4ae04c3a7',
+                'f23189ff996613bb559fcf45fbb0a062c6a09a31781a3aa8bca73d84d215dfb2',
+            ],
+            [
+                'compiler pane, -lfmt',
+                'g161',
+                compilerPaneBody({userArguments: '-O2 -lfmt'}),
+                '82859c56709b75a3070ec095cc7ea5d240191d9191e93e1784c39ed90fb74433',
             ],
             [
                 'compiler pane, clang-tidy added',
                 'g161',
                 compilerPaneBody({tools: [{id: 'clangtidytrunk', args: [], stdin: ''}]}),
-                '4ec44f8c605e15f34702a85d68aa4c1e5fe9a5d8b1da6586df02ff894cee111a',
+                '6773b48257a8c278e99307f880f41045412ffcd88719aa74f968988dfadd3910',
             ],
             [
                 'compiler pane, GCC dump pane open',
                 'g161',
                 compilerPaneBody({compilerOptions: GCC_DUMP_OPEN}),
-                '5450e7c946202591105a091ccf7eb4952ab592ec574ba8625d93e6afa7d85a8b',
+                '37d74eaefe6a682655bca8658a8b46cbba5d3cbcd304a19de47bf8cfa68f7008',
             ],
             [
                 'compiler pane, no extra panes',
                 'clang2110',
                 compilerPaneBody(),
-                '72c523d77a096efcf60d1bf5aa849b3876d1c5df967c92a830e9bd3af03fbea0',
+                '646e25d7753dc67c4bd20e76658a6d1fd771699dbe95bd7e6782cb4b16314728',
             ],
             [
                 'compiler pane, AST pane open',
                 'clang2110',
                 compilerPaneBody({compilerOptions: {produceAst: true}}),
-                '00f33696122179a820d7d167bcc78785ab5373f623bb506bacb62225442a89a4',
+                'a41eb74f79c1791aba4ebad240a792e5204d40aa1a754d7ced8bb90b026edf42',
             ],
             [
                 'compiler pane, AST pane opened and closed again',
                 'clang2110',
                 compilerPaneBody({compilerOptions: {produceAst: false}}),
-                '83cbfc662abcf3a98d092b6a7330d9d341ceecf9b39823a146fcd121a46134bb',
+                'a0fc73ad295d80fdba0e05cb587e4ce49fb08dd2632ce1b6b175fbcb671d2563',
             ],
             [
                 'compiler pane, opt remarks pane open',
                 'clang2110',
                 compilerPaneBody({compilerOptions: {produceOptInfo: true}}),
-                'b89026aaae5ba7ce2b95eefd72628012824535fe85114f891fe3a6cc791e8abe',
+                'e40c651051814b85bffd0cfa42389be1ed007d5a82521350caebd6c499ef8574',
             ],
         ];
 
@@ -280,17 +269,16 @@ describe('Compilation cache key', () => {
                             overrides: [],
                         },
                         filters: {
+                            binaryObject: false,
                             binary: false,
                             execute: false,
-                            demangle: true,
                             intel: true,
-                            commentOnly: true,
-                            directives: true,
+                            demangle: true,
                             labels: true,
-                            optOutput: false,
                             libraryCode: true,
+                            directives: true,
+                            commentOnly: true,
                             trim: false,
-                            binaryObject: false,
                             debugCalls: false,
                         },
                         tools: [],
@@ -306,11 +294,6 @@ describe('Compilation cache key', () => {
         it.each([
             ['"Execute the code" ticked', compilerPaneBody({filters: {execute: true}}), 'execute'],
             ['the executor pane', executorPaneBody(), 'execute'],
-            [
-                '-lfmt, which the worker may turn into a library',
-                compilerPaneBody({userArguments: '-O2 -lfmt'}),
-                'link-flag',
-            ],
             ['bypassCache set to Compilation', {...compilerPaneBody(), bypassCache: 1}, 'bypass-cache'],
             ['bypassCache set the old way, as a boolean', {...compilerPaneBody(), bypassCache: true}, 'bypass-cache'],
             ['a string for filters', {...compilerPaneBody(), options: {filters: 'binary'}}, 'unusual-request'],
@@ -344,42 +327,28 @@ describe('Compilation cache key', () => {
             expect(keyFor('nosuchcompiler', compilerPaneBody())).toEqual({skip: 'unknown-compiler'});
         });
 
-        it('a compiler type with a key of its own', () => {
-            const cat = new CompilerCatalogue([{id: 'tinygo037', lang: 'go', compilerType: 'tinygo'}]);
-            expect(keyFor('tinygo037', {...compilerPaneBody(), lang: 'go'}, {cat})).toEqual({skip: 'compiler-type'});
-        });
-
         it('a request whose own headers would replace the content type the worker sees', () => {
             const body = {...compilerPaneBody(), headers: {'content-type': 'text/plain'}};
             expect(keyFor('g161', body)).toEqual({skip: 'not-json'});
         });
     });
 
-    describe('normalises as the worker does', () => {
+    describe('holds the request as the worker parsed it', () => {
         function keyOf(compilerId: string, body: unknown, cat = catalogue) {
             const outcome = keyFor(compilerId, body, {cat});
             if ('skip' in outcome) throw new Error(`skipped: ${outcome.skip}`);
             return outcome.key;
         }
 
-        it('drops a binary filter the compiler cannot honour', () => {
-            const cat = new CompilerCatalogue([{id: 'nobin', lang: 'c++', supportsBinary: false}]);
-            expect(keyOf('nobin', compilerPaneBody({filters: {binary: true}}), cat).filters).not.toHaveProperty(
-                'binary',
-            );
-            expect(keyOf('nobin', compilerPaneBody(), cat).filters).toHaveProperty('binary', false);
-        });
-
-        it('keeps darkBackgroundColours, as a boolean, for a compiler whose output depends on it', () => {
-            const cat = new CompilerCatalogue([{id: 'dark', lang: 'c++', supportsDarkBackgroundColours: true}]);
-            const body = compilerPaneBody({compilerOptions: {darkBackgroundColours: 'yes'}});
-            expect(keyOf('dark', body, cat).backendOptions.darkBackgroundColours).toBe(false);
-            expect(Object.keys(keyOf('dark', body, cat).backendOptions).at(-1)).toBe('darkBackgroundColours');
-        });
-
-        it('marks filenames as unmasked when there are extra files', () => {
-            const body = {...compilerPaneBody(), files: [{filename: 'a.h', contents: ''}]};
-            expect(keyOf('g161', body).filters).toHaveProperty('dontMaskFilenames', true);
+        it('keeps the filters and backend options exactly as sent, whatever the compiler would make of them', () => {
+            const body = {
+                ...compilerPaneBody({userArguments: '-E -lfmt', compilerOptions: {darkBackgroundColours: true}}),
+                files: [{filename: 'a.h', contents: ''}],
+            };
+            const key = keyOf('g161', body);
+            expect(key.options).toEqual(['-E', '-lfmt']);
+            expect(JSON.stringify(key.filters)).toBe(JSON.stringify(body.options.filters));
+            expect(JSON.stringify(key.backendOptions)).toBe(JSON.stringify(body.options.compilerOptions));
         });
 
         it('splits string tool arguments, keeping their place', () => {
