@@ -268,19 +268,18 @@ export function clearRoutingCaches(): void {
     logger.info('Routing caches cleared: active color cache and compiler routing cache');
 }
 
-export async function sendToSqs(
+/**
+ * The message a worker is sent for a request: the request body's own fields, with the router's around and after them.
+ * The compilation cache check builds its key from this too, because it is what the worker builds its key from.
+ */
+export function buildQueueMessage(
     guid: string,
     compilerId: string,
     body: string,
     buildSystem: string | undefined,
     headers: Record<string, string | string[]>,
     queryStringParameters: Record<string, string>,
-    queueUrl: string,
-): Promise<void> {
-    if (!queueUrl) {
-        throw new Error('No queue URL available');
-    }
-
+): Record<string, any> {
     // Parse body based on content type
     const contentType = (headers['content-type'] || headers['Content-Type'] || '') as string;
     const requestData = parseRequestBody(body, contentType);
@@ -317,6 +316,24 @@ export async function sendToSqs(
     messageBody.libraries = messageBody.libraries || [];
     messageBody.files = messageBody.files || [];
     messageBody.executeParameters = messageBody.executeParameters || {};
+
+    return messageBody;
+}
+
+export async function sendToSqs(
+    guid: string,
+    compilerId: string,
+    body: string,
+    buildSystem: string | undefined,
+    headers: Record<string, string | string[]>,
+    queryStringParameters: Record<string, string>,
+    queueUrl: string,
+): Promise<void> {
+    if (!queueUrl) {
+        throw new Error('No queue URL available');
+    }
+
+    const messageBody = buildQueueMessage(guid, compilerId, body, buildSystem, headers, queryStringParameters);
 
     try {
         const messageJson = JSON.stringify(messageBody);

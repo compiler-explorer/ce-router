@@ -1,6 +1,7 @@
 import {Command} from 'commander';
 import {CompilerExplorerRouter} from './compiler-explorer-router.js';
 import {initialiseLogging, logger} from './lib/logger.js';
+import {CompilationCache, compilerListUrlFor} from './services/compilation-cache.js';
 import {PingMode} from './services/websocket-manager.js';
 
 // Environment variables
@@ -130,11 +131,25 @@ async function main() {
 
     logger.info('Starting CE Router Service...');
 
+    // Answer compile requests from the workers' compilation cache where it can, rather than queueing them.
+    // COMPILATION_CACHE_CHECK=false turns this off.
+    let compilationCache: CompilationCache | undefined;
+    if (process.env.COMPILATION_CACHE_CHECK !== 'false') {
+        compilationCache = new CompilationCache({
+            compilerListUrl: process.env.COMPILER_LIST_URL || compilerListUrlFor(envConfig.environmentName),
+        });
+        // Not awaited: until the compiler list has loaded, requests are queued without a check.
+        void compilationCache.start();
+    } else {
+        logger.info('Compilation cache check disabled by COMPILATION_CACHE_CHECK=false');
+    }
+
     // Create the router with configuration
     const router = new CompilerExplorerRouter({
         timeoutSeconds: TIMEOUT_SECONDS,
         websocketUrl: WEBSOCKET_URL,
         pingMode: PING_MODE,
+        compilationCache,
     });
     logger.info(`WebSocket heartbeat ping mode: ${PING_MODE}`);
 
@@ -159,6 +174,7 @@ async function main() {
         server.close(() => {
             logger.info('HTTP server closed');
             router.stop();
+            compilationCache?.stop();
             process.exit(0);
         });
     };
