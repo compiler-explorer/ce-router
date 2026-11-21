@@ -8,6 +8,8 @@ A TypeScript-based router service for Compiler Explorer that handles compilation
 - **Multiple routing modes**: Queue-based (SQS) and URL-based forwarding
 - **WebSocket integration**: Real-time compilation results via WebSocket connections
 - **S3 overflow support**: Automatic handling of large compilation outputs via S3 storage
+- **Compilation cache check**: A compile request whose result is already in the workers' compilation cache is answered
+  from there instead of being queued; hits, misses and skipped checks are counted on `GET /metrics`
 - **Comprehensive logging**: Winston-based structured logging with remote logging support
 - **CORS support**: Cross-origin request handling for web frontends
 
@@ -90,7 +92,10 @@ node dist/index.js --env prod --websocket wss://custom.websocket.url
 
 ## Environment Variables
 
-- AWS credentials for SQS, DynamoDB, and SSM access
+- AWS credentials for SQS, DynamoDB, and SSM access, and read access to the compilation cache in S3
+- `COMPILATION_CACHE_CHECK=false` turns the compilation cache check off
+- `COMPILER_LIST_URL` overrides where the compiler list for the cache check (ids and aliases) comes from (default: the environment's
+  `/api/compilers` on godbolt.org)
 
 ## License
 
