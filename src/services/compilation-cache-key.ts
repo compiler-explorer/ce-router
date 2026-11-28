@@ -146,7 +146,9 @@ export function buildCompilationCacheKey(
         options = [];
     }
 
-    const backendOptions = opts.compilerOptions || {};
+    // Only missing or null compilerOptions means none. Workers from compiler-explorer#9682 on reject false, 0 and '';
+    // older ones treat them as {}. Either way these are not keyed, so they cannot share {}'s entry.
+    const backendOptions = opts.compilerOptions ?? {};
     if (!isPlainObject(backendOptions)) return {skip: 'unusual-request'};
 
     // Spread as the worker does it, so a string or an array would come apart into characters or indices: not checked.

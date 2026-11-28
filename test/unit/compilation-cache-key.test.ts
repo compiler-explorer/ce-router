@@ -106,6 +106,12 @@ function compilerPaneBody(
     };
 }
 
+/** A compiler pane request whose compilerOptions is replaced outright, for values the frontend never sends. */
+function withCompilerOptions(compilerOptions: unknown) {
+    const body = compilerPaneBody();
+    return {...body, options: {...body.options, compilerOptions}};
+}
+
 function executorPaneBody() {
     return {
         source: SOURCE,
@@ -298,6 +304,9 @@ describe('Compilation cache key', () => {
             ['bypassCache set the old way, as a boolean', {...compilerPaneBody(), bypassCache: true}, 'bypass-cache'],
             ['a string for filters', {...compilerPaneBody(), options: {filters: 'binary'}}, 'unusual-request'],
             ['a string for a tool', compilerPaneBody({tools: ['clangtidytrunk']}), 'unusual-request'],
+            ['compilerOptions of false', withCompilerOptions(false), 'unusual-request'],
+            ['compilerOptions of 0', withCompilerOptions(0), 'unusual-request'],
+            ["compilerOptions of ''", withCompilerOptions(''), 'unusual-request'],
         ])('%s', (_, body, reason) => {
             expect(keyFor('g161', body)).toEqual({skip: reason});
         });
@@ -354,6 +363,14 @@ describe('Compilation cache key', () => {
         it('splits string tool arguments, keeping their place', () => {
             const body = compilerPaneBody({tools: [{id: 'tool', args: '-a "b c"', stdin: ''}]});
             expect(keyOf('g161', body).tools).toEqual([{id: 'tool', args: ['-a', 'b c'], stdin: ''}]);
+        });
+
+        it('treats null compilerOptions as none, as the worker does', () => {
+            const withNull = keyFor('g161', withCompilerOptions(null));
+            const body = compilerPaneBody();
+            const {compilerOptions: _, ...optionsWithout} = body.options;
+            expect(withNull).toEqual(keyFor('g161', {...body, options: optionsWithout}));
+            expect('key' in withNull && withNull.key.backendOptions).toEqual({});
         });
 
         it('takes options and source from where the router defaults them when the request leaves them out', () => {
